@@ -23,16 +23,16 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Explanatory notes (when applicable)
 
 **Topics Covered**
-- Descriptive Statistics
--- Reporting descriptive statistics in clinical research
--- Measures of central tendency and variability
+- Beyond statistical significance: interpretation and reporting of p values and confidence intervals.
+- Reporting descriptive statistics in clinical research
+
 
 
 **Reproducibility**
 All analyses are designed to be fully reproducible.
 Requirements:
 - R (recommended: latest version)
-- Python (recommended: ≥ 3.9)
+- Python (recommended: ≥ 3.10)
 
 **Purpose**
 This repository aims to:
