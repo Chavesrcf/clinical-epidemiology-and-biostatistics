@@ -1,0 +1,257 @@
+---
+title: "Beyond statistical significance: interpretation and reporting of p values and confidence intervals with computational implementation in r and python"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# 1) Purpose
+
+This R Markdown document provides a step-by-step analytical structure for clinical research comparing:
+- **Control group** (`group = 0`)
+- **Intervention group** (`group = 1`)
+
+Using the attached dataset, it demonstrates how to:
+1. Formulate **null and alternative hypotheses** for common epidemiological comparisons.
+2. Choose and run **hypothesis tests** (with decision rules using **α**).
+3. Compute and interpret **p values**.
+4. Compute and interpret **95% confidence intervals (CIs)**, and connect CIs to hypothesis testing.
+
+The example uses a **binary outcome** (`outcome`) compared between:
+- **Control group** (`group = 0`)
+- **Intervention group** (`group = 1`)
+
+A secondary example illustrates hypothesis testing and CIs for a **continuous variable** (e.g., `age`) across groups.
+
+> **Dataset coding (per the model data file)**  
+> - `group`: `0 = Control`, `1 = Intervention`  
+> - `outcome`: `0 = Alive`, `1 = Dead`  
+> The **event of interest** is **death** (`outcome = 1`).
+
+# 2) Packages
+
+```{r packages}
+# Install once if necessary:
+# install.packages(c("readxl", "dplyr", "janitor", "tibble", "skimr"))
+
+library(readxl)
+library(dplyr)
+library(janitor)
+library(tibble)
+library(skimr)
+```
+
+# 3) Data Import (Excel)
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+```{r import-data}
+data <- read_excel("data.xlsx", sheet = "Data") 
+
+```
+
+
+# 4) Confirm Required Variables
+
+For the requested calculations, we need:
+- `group` (0 = Control, 1 = Intervention)
+- `outcome` (0 = Alive, 1 = Dead)
+
+```{r verify-vars-2}
+# Quick frequency checks
+skimr::skim(data)
+
+data %>% 
+  tabyl(outcome)
+
+## Creating a function that allows values smaller than 0.001 to be displayed as < 0.001
+format_p <- function(p, digits = 3) {
+  ifelse(
+    is.na(p),
+    NA,
+    ifelse(
+      p < 0.001,
+      "< 0.001",
+      formatC(p, format = "f", digits = digits)
+    )
+  )
+}
+```
+# 5) Create the Analysis Dataset
+
+We will:
+
+- keep only rows with non-missing `group` **and** `outcome`
+- ensure they are coded as expected (0/1)
+- define the event as `outcome == 1` (death)
+
+```{r analysis-dataset}
+analysis_data <- data %>%
+  select(group, outcome) %>%
+  filter(!is.na(group), !is.na(outcome)) %>%
+  mutate(
+    group = as.integer(group),
+    event = as.integer(outcome)  # event = 1 means "death"
+  )
+
+```
+# 6) Construct the 2×2 Table
+
+Rows:
+- Intervention
+- Control
+
+Columns:
+- Event (Dead)
+- Non-event (Alive)
+
+```{r table-2x2}
+analysis_data <- analysis_data %>%
+  mutate(
+    group_label = factor(group, levels = c(1, 0), labels = c("Intervention", "Control")),
+    event_label = factor(event, levels = c(1, 0), labels = c("Event", "Non-event"))
+  )
+
+tab <- table(analysis_data$group_label, analysis_data$event_label)
+tab
+```
+
+# 7) Hypothesis Testing for a Binary Outcome 
+
+## 7.1 Hypotheses, α level, and decision rule
+### Null hypothesis (H0)
+There is **no association** between `group` and `outcome` (event risk is equal across groups).
+
+In probability notation:
+\\[H_0: p_{Intervention} = p_{Control} \\]
+
+### Alternative hypothesis (H1)
+Event risk differs across groups:
+\\[H_1: p_{Intervention} \\neq p_{Control}\\]
+
+### Alpha (α)
+We set a conventional two-sided significance level:
+\\[\\alpha = 0.05\\]
+
+**Decision rule**
+- If **p value ≤ α**, reject *H0*.
+- If **p value > α**, fail to reject *H0*.
+
+```{r alpha}
+alpha <- 0.05
+alpha
+```
+
+## 7.2 Choosing the appropriate test (Chi-square vs Fisher's)
+- **Chi-square test** is commonly used for 2×2 tables when expected counts are not too small.
+- **Fisher’s exact test** is preferred when expected counts are small (a common rule of thumb: any expected cell count < 5).
+
+```{r expected-counts}
+# Expected counts for Chi-square suitability
+chisq_expected <- suppressWarnings(chisq.test(tab, correct = FALSE)$expected)
+chisq_expected
+```
+
+```{r run-tests}
+# Run both tests (emphasize the recommended one)
+## Chi-square test (no Yates continuity correction)
+chisq_res <- suppressWarnings(chisq.test(tab, correct = FALSE))
+p_value_chisq = chisq_res$p.value
+
+## Fisher's exact test (exact p value)
+fisher_res <- fisher.test(tab)
+p_value_fisher = fisher_res$p.value
+
+## Choose which p value to emphasize based on expected counts
+use_fisher <- any(chisq_expected < 5)
+test_recommended = ifelse(use_fisher, "Fisher's exact test", "Pearson Chi-square test")
+
+```
+
+## 7.3 Interpreting the p value in clinical/epidemiologic terms
+
+```{r interpret-pvalue}
+p_used <- if (use_fisher) fisher_res$p.value else chisq_res$p.value
+
+decision <- if (p_used <= alpha) "Reject H0 " else "Fail to reject H0"
+
+```
+# 8) Hypothesis Testing for a Continuous Variable (Age)
+
+This section demonstrates:
+- Null/alternative hypotheses for means
+- A two-sample t test (Welch) and its 95% CI
+
+## 8.1 Hypotheses for age
+
+\\[H_0: \\mu_{Intervention} = \\mu_{Control}\\]
+\\[H_1: \\mu_{Intervention} \\neq \\mu_{Control}\\]
+
+```{r continuous-prep}
+# Descriptive summary of age
+
+data <- data %>%
+  mutate(group_label = factor(group,
+                              levels = c(1,0),
+                              labels = c("Intervention","Control")))
+
+data %>% group_by(group_label) %>%
+  summarise(
+    n = n(),
+    mean_age = mean(age, na.rm = TRUE),
+    sd_age = sd(age, na.rm = TRUE),
+    median_age = median(age, na.rm = TRUE),
+    q1 = quantile(age, 0.25, na.rm = TRUE),
+    q3 = quantile(age, 0.75, na.rm = TRUE),
+    min = min(age, na.rm = TRUE),
+    max = max(age, na.rm = TRUE)
+  )
+
+
+```
+
+## 8.2 Welch two-sample t test (default in `t.test`)
+
+`Welch` is preferred when variances may differ.
+
+```{r ttest-age}
+tt_age <- t.test(age ~ group_label, data = data, conf.level = 1 - alpha)
+
+p_value = tt_age$p.value
+mean_difference = unname(diff(rev(tt_age$estimate))) # Intervention - Control (depends on factor order)
+CI_low = tt_age$conf.int[1]
+CI_high = tt_age$conf.int[2]
+  
+```
+
+# 9) Final Summary Table (Binary Outcome)
+
+```{r final-summary}
+final_summary_table <- tibble::tribble(~measure, ~value,                                   ~lower_ci, ~upper_ci,
+  "Recommended test for group vs outcome",       test_recommended,                          NA,        NA,
+  "P value (Chi-square); group vs outcome",      format_p(p_value_chisq),                   NA,        NA,
+  "P value (Fisher); group vs outcome",          format_p(p_value_fisher),                  NA,        NA,
+  "Alpha (α); group vs outcome",                 formatC(alpha, format="f", digits=2),      NA,        NA,
+  "Decision at α=0.05; group vs outcome",        decision,                                  NA,        NA,
+  "P value for age (group comparison)",          format_p(p_value),                          NA,        NA,
+  "Age mean difference (group comparison)",      formatC(mean_difference, format="f", digits=2),
+                                                 formatC(CI_low, format="f", digits=2),
+                                                 formatC(CI_high, format="f", digits=2)
+)
+    
+final_summary_table
+```
+
+---
+
+## End of document
