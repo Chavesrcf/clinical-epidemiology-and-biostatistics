@@ -24,8 +24,8 @@ They do not correspond to real patients and contain no identifiable or sensitive
 
 **Topics Covered**
 - Beyond statistical significance: interpretation and reporting of p values and confidence intervals.
+- Relative and absolute measures of effect in clinical research.
 - Reporting descriptive statistics in clinical research
-
 
 
 **Reproducibility**
@@ -41,7 +41,7 @@ This repository aims to:
 - Facilitate understanding of core methodological concepts
 - Serve as a reference for students, clinicians, and researchers
 
-**Author**
-Renato Carneiro de Freitas Chaves
+**Authors**
+Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa.
 For questions, suggestions, or collaboration:
 Email: chavesrcf@hotmail.com
