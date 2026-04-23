@@ -1,0 +1,276 @@
+---
+title: "Relative and absolute measures of effect in clinical research: interpretation of risk metrics and their ratios with computational implementation in r and python"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# 1) Purpose
+
+This R Markdown document provides a step-by-step structure to calculate effect measures for a **binary outcome** comparing:
+- **Control group** (`group = 0`)
+- **Intervention group** (`group = 1`)
+
+Effect measures:
+
+- **Relative Risk (RR)**
+- **Relative Risk Reduction (RRR)**
+- **Absolute Risk Reduction (ARR)**
+- **Number Needed to Treat (NNT)**
+- **Number Needed to Harm (NNH)**
+
+## Outcome definition in this dataset
+
+In the provided dataset model (`data.xlsx`), the binary endpoint is:
+- `outcome`: `0 = Alive`, `1 = Dead`
+We treat **death** (`outcome = 1`) as the **event of interest**.
+
+> **Interpretation rule**  
+> - If the intervention **reduces** event risk, report **NNT**.  
+> - If the intervention **increases** event risk, report **NNH**.
+
+# 2) Packages
+
+```{r packages}
+# Install once if necessary:
+# install.packages(c("readxl", "dplyr", "janitor", "epitools", "tibble", "skimr"))
+
+library(readxl)
+library(dplyr)
+library(janitor)
+library(epitools)
+library(tibble)
+library(skimr)
+```
+
+# 3) Data Import (Excel)
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+
+```{r import-data}
+data <- read_excel("data.xlsx", sheet = "Data") 
+
+```
+
+# 4) Confirm Required Variables
+
+For the requested calculations, we need:
+- `group` (0 = Control, 1 = Intervention)
+- `outcome` (0 = Alive, 1 = Dead)
+
+```{r verify-vars-2}
+# Quick frequency checks
+skimr::skim(data)
+
+data %>% 
+  tabyl(outcome)
+```
+# 5) Create the Analysis Dataset
+
+We will:
+
+- keep only rows with non-missing `group` **and** `outcome`
+- ensure they are coded as expected (0/1)
+- define the event as `outcome == 1` (death)
+
+```{r analysis-dataset}
+analysis_data <- data %>%
+  select(group, outcome) %>%
+  filter(!is.na(group), !is.na(outcome)) %>%
+  mutate(
+    group = as.integer(group),
+    event = as.integer(outcome)  # event = 1 means "death"
+  )
+
+```
+# 6) Construct the 2×2 Table
+
+Rows:
+- Intervention
+- Control
+
+
+Columns:
+- Event (Dead)
+- Non-event (Alive)
+
+```{r table-2x2}
+analysis_data <- analysis_data %>%
+  mutate(
+    group_label = factor(group, levels = c(1, 0), labels = c("Intervention", "Control")),
+    event_label = factor(event, levels = c(1, 0), labels = c("Event", "Non-event"))
+  )
+
+tab <- table(analysis_data$group_label, analysis_data$event_label)
+tab
+```
+
+# 7) Compute Risks and Effect Measures
+
+## 7.1 Extract cell counts (a, b, c, d)
+
+We define:
+
+- `a` = Events in **Intervention**
+- `b` = Non-events in **Intervention**
+- `c` = Events in **Control**
+- `d` = Non-events in **Control**
+
+```{r counts}
+a <- tab[["Intervention", "Event"]]
+b <- tab[["Intervention", "Non-event"]]
+c <- tab[["Control", "Event"]]
+d <- tab[["Control", "Non-event"]]
+```
+
+## 7.2 Compute risks (event rates)
+
+\[ Risk_{Intervention} = \frac{a}{a+b}, \quad Risk_{Control} = \frac{c}{c+d} \]
+
+```{r risks}
+(risk_intervention <- a / (a + b))
+(risk_control <- c / (c + d))
+```
+
+## 7.3 Relative Risk (RR)
+
+\[ RR = \frac{Risk_{Intervention}}{Risk_{Control}} \]
+
+```{r rr}
+RR <- risk_intervention / risk_control
+RR
+```
+
+## 7.4 Relative Risk Reduction (RRR)
+
+When the event is undesirable (death), a definition is:
+
+\[ RRR = 1 - RR \]
+
+```{r rrr}
+RRR <- 1 - RR
+RRR
+```
+
+## 7.5 Absolute Risk Reduction (ARR)
+
+\[ ARR = Risk_{Control} - Risk_{Intervention} \]
+
+```{r arr}
+ARR <-  risk_control - risk_intervention
+ARR
+```
+
+## 7.6 NNT and NNH
+
+- If `ARR > 0`, the intervention reduces risk → **NNT = 1 / ARR**
+- If `ARR < 0`, the intervention increases risk → **NNH = 1 / |ARR|**
+- If `ARR = 0`, neither NNT nor NNH is defined (infinite)
+
+Since the absolute risk reduction is positive ($ARR =$ `r round(ARR, 2)`), the number needed to treat (NNT = 1/ARR) is `r round(1/ARR, 2)`.
+
+```{r nnt-nnh,  echo = FALSE}
+if (ARR > 0) {
+  NNT <- 1 / ARR
+  NNH <- NA_real_
+} else if (ARR < 0) {
+  NNT <- NA_real_
+  NNH <- 1 / abs(ARR)
+} else {
+  NNT <- Inf
+  NNH <- Inf
+}
+
+# NNT
+# NNH
+```
+
+# 8) Confidence Intervals for Risk Difference and Relative Risk
+
+For reporting, the **Absolute risk reduction (ARR)** and **relative risk (RR)** should be presented with **95% confidence intervals (CIs)**.
+
+- **Absolute risk reduction(ARR)** is reported as:  
+  \[ ARR = Risk_{Control} - Risk_{Intervention} \]
+- **Relative risk (RR)** is reported as:  
+  \[ RR = \frac{Risk_{Intervention}}{Risk_{Control}} \]
+
+## 8.1 Absolute risk reduction (ARR) with 95% CI
+A Wald-type CI for the difference in proportions is obtained using `prop.test(..., correct = FALSE)`.
+
+```{r rd-ci}
+arr_test <- prop.test(
+  x = c(a, c),         # events: Intervention, Control
+  n = c(a + b, c + d), # totals: Intervention, Control
+  correct = FALSE
+)
+
+ARR <- arr_test$estimate[[2]] - arr_test$estimate[[1]]  # intervention - control
+ARR_CI_low  <- arr_test$conf.int[2]  
+ARR_CI_high <- arr_test$conf.int[1]
+```
+
+## 8.2 Relative risk (RR) with 95% CI
+
+A log (Wald) CI is computed for the RR. To ensure stability when any cell count is zero, a continuity correction of 0.5 is applied.
+
+```{r rr-ci}
+# Continuity correction if any cell is zero
+cc <- ifelse(any(c(a, b, c, d) == 0), 0.5, 0)
+
+a_cc <- a + cc
+b_cc <- b + cc
+c_cc <- c + cc
+d_cc <- d + cc
+
+risk_intervention_cc <- a_cc / (a_cc + b_cc)
+risk_control_cc      <- c_cc / (c_cc + d_cc)
+
+RR_cc <- risk_intervention_cc / risk_control_cc
+
+SE_logRR <- sqrt((1 / a_cc) - (1 / (a_cc + b_cc)) + (1 / c_cc) - (1 / (c_cc + d_cc)))
+
+alpha <- 0.05
+z <- qnorm(1 - alpha / 2)
+
+RR_CI_low  <- exp(log(RR_cc) - z * SE_logRR)
+RR_CI_high <- exp(log(RR_cc) + z * SE_logRR)
+
+tibble(
+  rr = RR_cc,
+  rr_ci_low = RR_CI_low,
+  rr_ci_high = RR_CI_high,
+  continuity_correction_applied = cc
+)
+```
+
+# 9) Final Summary Table
+
+```{r summary-table}
+# A compact, publication table with CI columns where applicable
+final_summary_table <- tribble(~measure,    ~value,            ~lower_ci,  ~upper_ci, 
+"Risk (Control)",                            risk_control,      NA,         NA,
+"Risk (Intervention)",                       risk_intervention, NA,         NA,
+"Absolute Risk Reduction (ARR = Rc - Ri)",   ARR,               ARR_CI_low, ARR_CI_high,
+"Relative Risk (RR)",                        RR,                RR_CI_low,  RR_CI_high,
+"Relative Risk Reduction (RRR = 1 - RR)",    RRR,               NA,         NA,
+"Number Needed to Treat (NNT) [if ARR > 0]", NNT,               NA,         NA, 
+"Number Needed to Harm (NNH) [if ARR < 0]",  NNH,               NA,         NA
+)
+
+final_summary_table
+```
+
+---
+
+## End of document
