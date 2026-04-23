@@ -1,0 +1,324 @@
+---
+title: "Reporting descriptive statistics in clinical research"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# 1) Purpose
+
+This R Markdown document provides a step-by-step analytical workflow for clinical research comparing:
+- **Control group** (`group = 0`)
+- **Intervention group** (`group = 1`)
+
+Using the attached dataset, it demonstrates how to:
+1. Prepare an analysis-ready dataset for descriptive reporting.
+2. Summarize **continuous variables** using measures of central tendency and dispersion.
+3. Summarize **categorical variables** using counts and proportions.
+4. Create tables and visual displays commonly used in epidemiological and clinical research.
+5. Organize descriptive results in a format suitable for academic and scientific reporting.
+
+The descriptive examples use:
+- **Grouping variable**: `group`
+- **Binary clinical outcome**: `outcome`
+- **Continuous baseline/laboratory variables**, such as `age`, `platelet`, `hemoglobin`, `creatinine`, `saps_3`, and `fluid_balance`
+- **Binary comorbidity/support variables**, such as `hypertension`, `diabetes`, `heart_failure`, `smoking`, `chronic_kidney_disease`, `cancer`, `stroke`, `vasopressor`, and `mechanical_ventilation`
+
+> **Dataset coding (per the model data file)**  
+> - `group`: `0 = Control`, `1 = Intervention`  
+> - `outcome`: `0 = Alive`, `1 = Dead`
+
+# 2) Packages
+
+```{r packages}
+# Install once if necessary:
+# install.packages(c("readxl", "dplyr", "janitor", "tibble", "skimr", "ggplot2", "scales", "forcats", "gtsummary"))
+
+library(readxl)
+library(dplyr)
+library(janitor)
+library(tibble)
+library(skimr)
+library(ggplot2)
+library(scales)
+library(forcats)
+library(gtsummary)
+```
+
+# 3) Data Import (Excel)
+
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+```{r import-data}
+data <- read_excel("data.xlsx", sheet = "Data")
+```
+
+# 4) Confirm Required Variables
+
+For the requested descriptive analyses, we need:
+- `group` (0 = Control, 1 = Intervention)
+- `outcome` (0 = Alive, 1 = Dead)
+- a set of continuous variables for numeric summaries
+- a set of binary/categorical variables for frequency summaries
+
+```{r verify-vars}
+# Quick structure and missingness checks
+skimr::skim(data)
+
+# Example frequency check for the outcome variable
+data %>% 
+  tabyl(outcome)
+```
+
+# 5) Create the Analysis Dataset
+
+We will:
+- define the continuous and binary variables of interest
+- keep only rows with non-missing `group` and `outcome`
+- ensure continuous variables are numeric
+- ensure binary variables are coded consistently
+- create labeled factors for descriptive presentation
+
+```{r analysis-dataset}
+# --- Continuous variables ---
+numerical_vars <- c(
+  "age",
+  "platelet",
+  "hemoglobin",
+  "creatinine",
+  "saps_3",
+  "fluid_balance"
+)
+
+# --- Binary/categorical variables ---
+binary_vars <- c(
+  "group",
+  "hypertension",
+  "diabetes",
+  "heart_failure",
+  "smoking",
+  "chronic_kidney_disease",
+  "cancer",
+  "stroke",
+  "vasopressor",
+  "mechanical_ventilation",
+  "outcome"
+)
+
+required_vars <- c(numerical_vars, binary_vars)
+
+analysis_data <- data %>%
+  select(all_of(required_vars)) %>%
+  filter(!is.na(group), !is.na(outcome)) %>%
+  mutate(
+    across(all_of(numerical_vars), ~ as.numeric(.x)),
+    across(all_of(binary_vars), ~ as.integer(.x))
+  ) %>%
+  mutate(
+    group = factor(group, levels = c(0, 1), labels = c("Control", "Intervention")),
+    outcome = factor(outcome, levels = c(0, 1), labels = c("Alive", "Dead")),
+    across(
+      all_of(setdiff(binary_vars, c("group", "outcome"))),
+      ~ factor(.x, levels = c(0, 1), labels = c("No", "Yes"))
+    )
+  )
+
+# Confirm final structure
+str(analysis_data)
+```
+
+# 6) Descriptive Reporting for Categorical Variables
+
+## 6.1 Frequency tables and proportions
+
+This section summarizes the distribution of categorical variables using:
+- **absolute frequencies (n)**
+- **relative frequencies (%)**
+- **contingency tables** when comparisons across groups are relevant
+
+```{r categorical-distributions}
+# Contingency table: Group vs Outcome
+# Often central in clinical and epidemiological reports
+
+tab_group_outcome <- table(analysis_data$group, analysis_data$outcome)
+tab_group_outcome
+
+# Row proportions: within-group outcome distribution
+prop.table(tab_group_outcome, margin = 1)
+
+# Example: Group vs hypertension
+
+tab_group_htn <- table(analysis_data$group, analysis_data$hypertension)
+tab_group_htn
+prop.table(tab_group_htn, margin = 1)
+```
+
+# 7) Descriptive Reporting for Continuous Variables
+
+This section summarizes continuous variables using:
+- **mean** and **standard deviation (SD)**
+- **median** and **interquartile range (IQR)**
+- **minimum** and **maximum**
+
+## 7.1 Continuous-variable summary by group
+
+```{r continuous-summary}
+continuous_summary <- analysis_data %>%
+  group_by(group) %>%
+  summarise(
+    across(
+      all_of(numerical_vars),
+      list(
+        n = ~ sum(!is.na(.x)),
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd = ~ sd(.x, na.rm = TRUE),
+        median = ~ median(.x, na.rm = TRUE),
+        q1 = ~ quantile(.x, 0.25, na.rm = TRUE),
+        q3 = ~ quantile(.x, 0.75, na.rm = TRUE),
+        min = ~ min(.x, na.rm = TRUE),
+        max = ~ max(.x, na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  )
+
+continuous_summary
+```
+
+## 7.2 Stratified descriptive table for publication/reporting
+
+```{r descriptive-table}
+tab_01 <- analysis_data %>%
+  select(all_of(c("group", setdiff(binary_vars, "group"), numerical_vars))) %>%
+  tbl_summary(
+    by = group,
+    missing = "ifany",
+    statistic = list(
+      all_categorical() ~ "{n} ({p}%)",
+      all_continuous()  ~ "{mean} ({sd}); {median} ({p25}, {p75}); min {min}, max {max}"
+    ),
+    digits = all_continuous() ~ 2
+  ) %>%
+  add_overall(last = TRUE) %>%
+  bold_labels()
+
+tab_01
+```
+
+# 8) Graphical Display of the Data
+
+Visual summaries complement numerical summaries and help assess shape, skewness, variability, and outliers.
+
+## 8.1 Histograms
+
+```{r histograms, fig.height=4, fig.width=7}
+for (v in numerical_vars) {
+
+  p <- ggplot(analysis_data, aes(x = .data[[v]])) +
+    geom_histogram(bins = 15, boundary = 0) +
+    labs(
+      title = paste("Histogram of", v),
+      x = v,
+      y = "Count"
+    )
+
+  print(p)
+}
+```
+
+## 8.2 Density plots
+
+```{r density-plots, fig.height=4, fig.width=7}
+for (v in numerical_vars) {
+
+  p <- ggplot(analysis_data, aes(x = .data[[v]])) +
+    geom_density() +
+    labs(
+      title = paste("Density plot of", v),
+      x = v,
+      y = "Density"
+    )
+
+  print(p)
+}
+```
+
+## 8.3 Box plots (overall and by group)
+
+```{r box-plots, fig.height=4, fig.width=7}
+for (v in numerical_vars) {
+
+  # Overall box plot
+  p1 <- ggplot(analysis_data, aes(y = .data[[v]])) +
+    geom_boxplot() +
+    labs(
+      title = paste("Box plot of", v, "(overall)"),
+      y = v,
+      x = ""
+    )
+
+  print(p1)
+
+  # By-group box plot
+  p2 <- ggplot(analysis_data, aes(x = group, y = .data[[v]])) +
+    geom_boxplot() +
+    labs(
+      title = paste("Box plot of", v, "by group"),
+      x = "Group",
+      y = v
+    )
+
+  print(p2)
+}
+```
+
+# 9) Graphical Display for Categorical Variables
+
+Pie charts can illustrate category composition, although bar charts are often preferred in scientific reporting.
+
+## 9.1 Mathematical definition
+
+For category \(c\), the slice size corresponds to the proportion \(p_c\), with percentage equal to \(100 \times p_c\).
+
+```{r pie-charts, fig.height=4, fig.width=7}
+# Reusable pie chart function for a factor variable
+plot_pie <- function(df, var, title_prefix = "Pie chart of") {
+  tab <- df %>%
+    count(.data[[var]], name = "n") %>%
+    mutate(
+      proportion = n / sum(n),
+      label = paste0(.data[[var]], "\n", percent(proportion, accuracy = 0.1))
+    )
+
+  ggplot(tab, aes(x = "", y = proportion, fill = .data[[var]])) +
+    geom_col(width = 1) +
+    coord_polar(theta = "y") +
+    geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 3) +
+    labs(
+      title = paste(title_prefix, var),
+      x = NULL,
+      y = NULL,
+      fill = var
+    ) +
+    theme_void()
+}
+
+# Example pie charts commonly reported
+print(plot_pie(analysis_data, "group"))
+print(plot_pie(analysis_data, "outcome"))
+print(plot_pie(analysis_data, "hypertension"))
+```
+
+## End of document
