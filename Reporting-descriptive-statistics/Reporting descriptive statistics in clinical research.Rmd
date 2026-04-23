@@ -15,7 +15,7 @@ knitr::opts_chunk$set(
 
 # 1) Purpose
 
-This R Markdown document provides a step-by-step analytical workflow for clinical research comparing:
+This R Markdown document provides a step-by-step analytical structure for clinical research comparing:
 - **Control group** (`group = 0`)
 - **Intervention group** (`group = 1`)
 
