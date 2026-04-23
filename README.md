@@ -24,8 +24,9 @@ They do not correspond to real patients and contain no identifiable or sensitive
 
 **Topics Covered**
 - Beyond statistical significance: interpretation and reporting of p values and confidence intervals.
+- Clinical trials phases.
 - Relative and absolute measures of effect in clinical research.
-- Reporting descriptive statistics in clinical research
+- Reporting descriptive statistics in clinical research.
 
 
 **Reproducibility**
