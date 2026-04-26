@@ -1,0 +1,527 @@
+---
+title: "Reporting disease frequency in clinical research: incidence and prevalence"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# 1) Purpose
+
+This R Markdown document provides a step-by-step analytical guide for estimating and interpreting core epidemiological measures of disease frequency using the attached clinical dataset.
+
+The analysis focuses on four related concepts:
+
+1. **Incidence proportion**: the proportion of initially at-risk patients who experienced the event during the observation period.
+2. **Incidence rate**: the number of new events divided by the amount of person-time contributed by the at-risk population.
+3. **Prevalence**: the proportion of patients with a condition at a defined time point, during a defined period, or among individuals who had contact with the health-care setting.
+4. **At-risk population**: the group of individuals who are eligible to experience the outcome of interest.
+
+The dataset contains individual-level clinical information for patients admitted to the intensive care unit. In this didactic example, hospital mortality at discharge is represented by outcome = 1. Follow-up-based events are represented by event = 1 and are used for person-time analyses.
+
+the main incident event is **hospital mortality** (`outcome = 1`). 
+> **Dataset coding according to the legend**  
+> - `group`: `0 = Control`, `1 = Intervention`  
+> - `outcome`: `0 = Alive`, `1 = Dead`  
+> - Binary comorbidity and support variables: `0 = No`, `1 = Yes`  
+> - `mechanical_ventilation`: use of invasive mechanical ventilation at ICU admission  
+> - `vasopressor`: vasopressor use at ICU admission  
+
+Note
+> -  'outcome': status at hospital discharge (time-independent)
+> - 'event': occurrence during follow-up (time-dependent, used for incidence rate)
+
+# 2) Packages
+
+```{r packages}
+# Install packages once if necessary:
+# install.packages(c("readxl", "dplyr", "janitor", "tibble", "knitr", "skimr", "lubridate"))
+
+library(readxl)
+library(dplyr)
+library(janitor)
+library(tibble)
+library(knitr)
+library(skimr)
+library(lubridate)
+```
+
+# 3) Data Import (Excel)
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+```{r data-loading}
+data <- read_excel("data.xlsx", sheet = "Data") 
+
+```
+
+# 4) Confirm Required Variables
+
+For the requested calculations, we need:
+- `group` (0 = Control, 1 = Intervention)
+- `outcome` (0 = Alive, 1 = Dead)
+- `event` (0 = censored/no event during follow-up, 1 = event occurred)
+- `follow_up_start` (start date of follow-up)
+- `follow_up_end` (end date of follow-up)
+- `follow_up_days` (duration of follow-up in days)
+- `follow_up_years` (duration of follow-up in years)
+
+```{r verify-vars-2}
+# Quick frequency checks
+skimr::skim(data)
+
+data %>% 
+  tabyl(outcome)
+
+data %>% 
+  tabyl(event)
+
+summary(data$follow_up_days)
+summary(data$follow_up_years)
+
+```
+
+# 5) Data Preparation and Variable Definitions
+
+The analysis uses the following variables:
+
+- `patient`: unique patient identifier.
+- `group`: patient allocation group.
+- `follow_up_start`: start date of follow-up.
+- `follow_up_end`: end date of follow-up, corresponding either to event occurrence or censoring.
+- `follow_up_days`: individual follow-up duration in days.
+- `follow_up_years`: individual follow-up duration in years, calculated as `follow_up_days / 365.25`.
+- `outcome`: hospital vital status; `1 = death`, `0 = alive`.
+- `event`: event indicator during follow-up; `1 = event occurred`, `0 = censored/no event observed`.
+- `mechanical_ventilation`: invasive mechanical ventilation at ICU admission.
+- `vasopressor`: vasopressor use at ICU admission.
+- `comorbidity_any`: presence of at least one selected chronic comorbidity.
+- `person_time_days`: amount of observation time contributed by each at-risk patient in days.
+- `person_time_years`: amount of observation time contributed by each at-risk patient in years.
+
+```{r data-preparation}
+analysis_data <- data %>%
+  # Keep variables required for this epidemiological analysis.
+  select(
+    patient, group, center,
+    follow_up_start, follow_up_end, follow_up_days, follow_up_years,
+    age, platelet, hemoglobin, creatinine, saps_3, fluid_balance,
+    hypertension, diabetes, heart_failure, smoking,
+    chronic_kidney_disease, cancer, stroke,
+    vasopressor, mechanical_ventilation,
+    outcome, event
+  ) %>%
+  # Convert coded variables and follow-up fields to the appropriate analytical format.
+  mutate(
+    across(
+      c(group, center, outcome, event, hypertension, diabetes, heart_failure,
+        smoking, chronic_kidney_disease, cancer, stroke,
+        vasopressor, mechanical_ventilation),
+      as.integer
+    ),
+
+    # Convert follow-up dates to Date objects.
+    # This ensures that date subtraction and time calculations are reproducible.
+    follow_up_start = as.Date(follow_up_start),
+    follow_up_end   = as.Date(follow_up_end),
+
+    # Validate follow-up duration.
+    # The Excel file already contains follow_up_days and follow_up_years.
+    # Here, we recalculate follow-up duration from dates only as a consistency check.
+    calculated_follow_up_days = as.numeric(follow_up_end - follow_up_start),
+
+    # Use the follow-up duration stored in the dataset for the primary analysis.
+    # In a real cohort, this value would represent time from cohort entry to event or censoring.
+    person_time_days = as.numeric(follow_up_days),
+    person_time_years = as.numeric(follow_up_years),
+
+    # Define the at-risk indicator.
+    # Patients are considered at risk when they have valid event status and positive follow-up time.
+    at_risk_discharge = as.integer(!is.na(outcome)),
+    
+    at_risk_followup = as.integer(
+      !is.na(event) &
+        !is.na(person_time_years) &
+        person_time_years > 0
+),
+    # Define a composite chronic comorbidity variable.
+    # This represents whether at least one selected chronic condition is documented.
+    comorbidity_any = as.integer(
+      hypertension == 1 | diabetes == 1 | heart_failure == 1 |
+        smoking == 1 | chronic_kidney_disease == 1 | cancer == 1 | stroke == 1
+    ),
+
+    # Create readable labels for descriptive tables.
+    group_label = factor(group, levels = c(0, 1), labels = c("Control", "Intervention")),
+    outcome_label = factor(outcome, levels = c(0, 1), labels = c("Alive", "Dead")),
+    event_label = factor(event, levels = c(0, 1), labels = c("Censored", "Event occurred"))
+  )
+
+# Confirm that the prepared dataset has the expected analytical variables.
+glimpse(analysis_data)
+
+
+```
+
+# 6) Describing Disease Frequency
+
+1. **The numerator**: number of patients with the disease or event.
+2. **The denominator**: population from which the numerator arose.
+3. **The time frame**: point in time, period of observation, or accumulated person-time.
+4. **The population context**: inclusion criteria and at-risk status.
+
+
+```{r descriptive-frequency}
+# Distribution of the main event by allocation group.
+event_by_group <- analysis_data %>%
+  count(group_label, outcome_label, name = "n") %>%
+  group_by(group_label) %>%
+  mutate(group_proportion = n / sum(n)) %>%
+  ungroup()
+
+event_by_group %>%
+  kable(
+    digits = 3,
+    caption = "Hospital vital status by allocation group."
+  )
+```
+
+# 7) The At-Risk Population
+
+## 7.1 Conceptual definition
+
+The at-risk population includes individuals who are eligible to experience the event of interest. For hospital mortality, patients must be alive at the beginning of follow-up and have a known hospital outcome.
+
+## 7.2 Mathematical notation
+
+Let:
+
+\[N_{risk} = \sum_{i=1}^{N} I(\text{patient } i \text{ is at risk})\]
+
+where \(I(\cdot)\) is an indicator function equal to 1 when the condition is true and 0 otherwise.
+
+```{r at-risk-population}
+# Count the at-risk population for the main event.
+discharge_risk_set <- analysis_data %>%
+  filter(at_risk_discharge == 1)
+
+incidence_proportion_overall <- discharge_risk_set %>%
+  summarise(
+    population_at_risk = n(),
+    incident_events = sum(outcome == 1, na.rm = TRUE),
+    incidence_proportion = incident_events / population_at_risk,
+    incidence_percent = incidence_proportion * 100
+  )
+
+```
+
+# 8) Incidence Proportion
+
+## 8.1 Definition
+
+Incidence proportion, also called cumulative incidence or risk, is the proportion of at-risk individuals who experience a new event during a defined observation period.
+
+## 8.2 Formula
+
+\[\text{Incidence proportion} =
+\frac{\text{Number of new events during the period}}
+{\text{Number of individuals at risk at the beginning of the period}}
+\]
+
+For percentage reporting:
+
+\[
+\text{Incidence proportion (\%)} =
+\text{Incidence proportion} \times 100
+\]
+
+```{r incidence-proportion}
+
+# Calculate incidence proportion
+discharge_risk_set <- analysis_data %>%
+  filter(at_risk_discharge == 1)
+
+incidence_proportion_overall <- discharge_risk_set %>%
+  summarise(
+    population_at_risk = n(),
+    incident_events = sum(outcome == 1, na.rm = TRUE),
+    incidence_proportion = incident_events / population_at_risk,
+    incidence_percent = incidence_proportion * 100
+  )
+```
+
+# 9) Incidence Rate
+
+## 9.1 Definition
+
+Incidence rate is the number of new events divided by the total person-time accumulated by the at-risk population.
+
+## 9.2 Formula
+
+First, total person-time is calculated as the sum of individual follow-up time:
+
+\[
+\text{Total person-time} = \sum_{i=1}^{N} t_i
+\]
+
+where \(t_i\) is the follow-up time contributed by individual \(i\).
+
+Then, the incidence rate is calculated as:
+
+\[
+\text{Incidence rate} =
+\frac{\text{Number of new events}}
+{\text{Total person-time at risk}}
+\]
+
+For standardized reporting:
+
+\[
+\text{Incidence rate per 100 person-years} =
+\text{Incidence rate} \times 100
+\]
+
+\[
+\text{Incidence rate per 1,000 person-years} =
+\text{Incidence rate} \times 1000
+\]
+
+
+```{r incidence-rate}
+# Calculate total person-time and the event rate for the full cohort.
+# The denominator is the sum of each patient's follow-up time.
+followup_risk_set <- analysis_data %>%
+  filter(
+    at_risk_followup == 1
+  )
+
+incidence_rate_overall <- followup_risk_set %>%
+  summarise(
+    population_at_risk = n(),
+    incident_events = sum(event == 1, na.rm = TRUE),
+    total_person_time_days = sum(person_time_days, na.rm = TRUE),
+    total_person_time_years = sum(person_time_years, na.rm = TRUE),
+    incidence_rate_per_person_year = incident_events / total_person_time_years,
+    incidence_rate_per_100_person_years = incidence_rate_per_person_year * 100,
+    incidence_rate_per_1000_person_years = incidence_rate_per_person_year * 1000
+  )
+
+
+# Calculate incidence rate by allocation group.
+incidence_rate_by_group <- followup_risk_set %>%
+  group_by(group_label) %>%
+  summarise(
+    population_at_risk = n(),
+    incident_events = sum(event == 1, na.rm = TRUE),
+    total_person_time_days = sum(person_time_days, na.rm = TRUE),
+    total_person_time_years = sum(person_time_years, na.rm = TRUE),
+    incidence_rate_per_person_year = incident_events / total_person_time_years,
+    incidence_rate_per_100_person_years = incidence_rate_per_person_year * 100,
+    incidence_rate_per_1000_person_years = incidence_rate_per_person_year * 1000,
+    .groups = "drop"
+  )
+
+
+```
+
+# 10) Prevalence
+
+Prevalence measures the proportion of a population that has a condition at a defined point or during a defined interval. 
+
+## 10.1 Point prevalence
+
+### Definition
+
+Point prevalence is the proportion of individuals with a condition at a specific point in time. In this dataset, invasive mechanical ventilation is documented at ICU admission, so it can be interpreted as a point-prevalence measure at the time of ICU admission.
+
+### Formula
+
+\[
+\text{Point prevalence} =
+\frac{\text{Number of individuals with the condition at a specific point}}
+{\text{Number of individuals assessed at that point}}
+\]
+
+```{r point-prevalence}
+# Calculate point prevalence of invasive mechanical ventilation at ICU admission.
+point_prevalence_mv <- analysis_data %>%
+  filter(!is.na(mechanical_ventilation)) %>%
+  summarise(
+    assessed_n = n(),
+    prevalent_cases = sum(mechanical_ventilation == 1, na.rm = TRUE),
+    point_prevalence = prevalent_cases / assessed_n,
+    point_prevalence_percent = point_prevalence * 100
+  )
+
+```
+
+## 10.2 Period prevalence
+
+### Definition
+
+Period prevalence is the proportion of individuals who had a condition at any time during a defined observation period. In this dataset, chronic comorbidities are documented for patients enrolled during the study period. The composite variable `comorbidity_any` is used as a period-prevalence example.
+
+### Formula
+
+\[
+\text{Period prevalence} =
+\frac{\text{Number of individuals with the condition at any time during the period}}
+{\text{Number of individuals observed during the same period}}
+\]
+
+```{r period-prevalence}
+# Calculate period prevalence of at least one selected chronic comorbidity.
+period_prevalence_comorbidity <- analysis_data %>%
+  filter(!is.na(comorbidity_any)) %>%
+  summarise(
+    observed_n = n(),
+    prevalent_cases = sum(comorbidity_any == 1, na.rm = TRUE),
+    period_prevalence = prevalent_cases / observed_n,
+    period_prevalence_percent = period_prevalence * 100
+  )
+
+```
+
+## 10.3 Contact prevalence
+
+### Definition
+
+Contact prevalence is the proportion of individuals with a condition among those who had contact with a defined health-care service or setting. Here, all enrolled patients had contact with the ICU study setting. Therefore, contact prevalence is illustrated as the prevalence of vasopressor use among ICU contacts.
+
+### Formula
+
+\[
+\text{Contact prevalence} =
+\frac{\text{Number of contacts with the condition}}
+{\text{Total number of contacts assessed}}
+\]
+
+```{r contact-prevalence}
+# Calculate contact prevalence of vasopressor use among enrolled ICU contacts.
+contact_prevalence_vasopressor <- analysis_data %>%
+  filter(!is.na(vasopressor)) %>%
+  summarise(
+    contacts_assessed = n(),
+    contacts_with_condition = sum(vasopressor == 1, na.rm = TRUE),
+    contact_prevalence = contacts_with_condition / contacts_assessed,
+    contact_prevalence_percent = contact_prevalence * 100
+  )
+
+```
+
+# 11) Contingency Tables
+
+Contingency tables are useful for displaying disease frequency across clinically meaningful strata.
+
+```{r contingency-tables}
+# Event by allocation group.
+tab <- analysis_data %>%
+  tabyl(group_label, outcome_label) %>%
+  adorn_totals(where = c("row", "col"))
+
+
+# Mechanical ventilation by allocation group.
+table_mv_group <- analysis_data %>%
+  mutate(
+    mechanical_ventilation_label = factor(
+      mechanical_ventilation,
+      levels = c(0, 1),
+      labels = c("No mechanical ventilation", "Mechanical ventilation")
+    )
+  ) %>%
+  tabyl(group_label, mechanical_ventilation_label) %>%
+  adorn_totals(where = c("row", "col"))
+```
+
+# 12) Disease Frequency Across Selected Conditions
+
+The same prevalence structure can be applied to multiple binary clinical variables. This table summarizes the frequency of selected comorbidities and ICU-support variables.
+
+```{r selected-condition-frequency}
+selected_binary_variables <- c(
+  "hypertension",
+  "diabetes",
+  "heart_failure",
+  "smoking",
+  "chronic_kidney_disease",
+  "cancer",
+  "stroke",
+  "vasopressor",
+  "mechanical_ventilation"
+)
+
+condition_frequency <- lapply(selected_binary_variables, function(variable_name) {
+  x <- analysis_data[[variable_name]]
+
+  tibble(
+    variable = variable_name,
+    assessed_n = sum(!is.na(x)),
+    cases_n = sum(x == 1, na.rm = TRUE),
+    prevalence = cases_n / assessed_n,
+    prevalence_percent = prevalence * 100
+  )
+}) %>%
+  bind_rows()
+
+```
+
+# 13) Final Summary Table
+
+```{r final-summary}
+final_summary_table <- bind_rows(
+  tibble(
+    measure = "Incidence proportion of hospital mortality at discharge",
+    numerator = incidence_proportion_overall$incident_events,
+    denominator = incidence_proportion_overall$population_at_risk,
+    estimate = incidence_proportion_overall$incidence_percent,
+    unit = "Percent"
+  ),
+  tibble(
+    measure = "Incidence rate during follow-up",
+    numerator = incidence_rate_overall$incident_events,
+    denominator = incidence_rate_overall$total_person_time_years,
+    estimate = incidence_rate_overall$incidence_rate_per_100_person_years,
+    unit = "Events per 100 person-years"
+  ),
+  tibble(
+    measure = "Point prevalence of invasive mechanical ventilation",
+    numerator = point_prevalence_mv$prevalent_cases,
+    denominator = point_prevalence_mv$assessed_n,
+    estimate = point_prevalence_mv$point_prevalence_percent,
+    unit = "Percent"
+  ),
+  tibble(
+    measure = "Period prevalence of at least one selected chronic comorbidity",
+    numerator = period_prevalence_comorbidity$prevalent_cases,
+    denominator = period_prevalence_comorbidity$observed_n,
+    estimate = period_prevalence_comorbidity$period_prevalence_percent,
+    unit = "Percent with at least one selected chronic comorbidity"
+  ),
+  tibble(
+    measure = "Contact prevalence of vasopressor use among ICU contacts",
+    numerator = contact_prevalence_vasopressor$contacts_with_condition,
+    denominator = contact_prevalence_vasopressor$contacts_assessed,
+    estimate = contact_prevalence_vasopressor$contact_prevalence_percent,
+    unit = "Percent of enrolled ICU contacts receiving vasopressors"
+  )
+)
+
+final_summary_table %>%
+  kable(
+    digits = 0,
+    caption = "Reporting disease frequency in clinical research"
+  )
+```
+
+
+## End of document
