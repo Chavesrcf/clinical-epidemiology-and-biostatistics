@@ -30,6 +30,8 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Relative and absolute measures of effect in clinical research.
 - Reporting descriptive statistics in clinical research.
 - Reporting disease frequency in clinical research
+- Risk, relative risk, odds, and odds ratio.
+- Systematic reviews and meta-analyses
 
 
 **Reproducibility**
