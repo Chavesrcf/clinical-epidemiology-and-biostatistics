@@ -1,0 +1,267 @@
+---
+title: "Risk, Relative Risk, Odds, and Odds Ratio"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# Purpose
+
+This R Markdown document provides a step-by-step analytical guide for calculating and interpreting four fundamental epidemiological measures:
+
+1. **Risk**
+2. **Relative risk**
+3. **Odds**
+4. **Odds ratio**
+
+The analysis uses a binary exposure variable and a binary outcome variable from the attached dataset.
+
+> **Dataset coding**  
+> - `group`: `0 = Control`, `1 = Intervention`  
+> - `outcome`: `0 = Alive`, `1 = Dead`  
+>
+> The event of interest in this report is **death** (`outcome = 1`).
+
+# 2) Packages
+
+```{r packages}
+# Install these packages once if necessary:
+# install.packages(c("readxl", "dplyr", "janitor", "tibble", "knitr", "skimr"))
+
+library(readxl)
+library(dplyr)
+library(janitor)
+library(tibble)
+library(knitr)
+library(skimr)
+```
+
+# 3) Data Import (Excel)
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+```{r data-loading}
+
+data <- read_excel("data.xlsx", sheet = "Data") 
+
+```
+
+# 4) Confirm Required Variables
+
+For the requested calculations, we need:
+- `group` (0 = Control, 1 = Intervention)
+- `outcome` (0 = Alive, 1 = Dead)
+
+```{r data-inspection}
+# Quick frequency checks
+skimr::skim(data)
+
+data %>% 
+  tabyl(outcome)
+
+```
+# 5) Create the Analysis Dataset
+We will:
+- keep only rows with non-missing `group` **and** `outcome`
+- ensure they are coded as expected (0/1)
+- define the event as `outcome == 1` (death)
+
+
+- **Exposure variable**: `group`
+  - `group = 1`: Intervention group
+  - `group = 0`: Control group
+
+- **Outcome variable**: `outcome`
+  - `outcome = 1`: Death
+  - `outcome = 0`: Alive
+  
+```{r data-preparation}
+# Create an analysis dataset containing only the variables needed for the calculations.
+
+analysis_data <- data %>%
+  select(group, outcome) %>%
+  filter(!is.na(group), !is.na(outcome)) %>%
+  mutate(
+    group = as.integer(group),
+    outcome = as.integer(outcome),
+    event = outcome,
+    group_label = factor(
+      group,
+      levels = c(1, 0),
+      labels = c("Intervention", "Control")
+    ),
+    event_label = factor(
+      event,
+      levels = c(1, 0),
+      labels = c("Death", "Alive")
+    )
+  )
+
+```
+
+# 6) Construct the 2×2 Table
+
+Rows:
+- Intervention
+- Control
+
+Columns:
+- Event (Dead)
+- Non-event (Alive)
+
+```{r table-2x2}
+tab <- table(
+  analysis_data$group_label,
+  analysis_data$event_label
+)
+tab
+
+
+# Extract the four cell counts using epidemiological notation.
+a <- as.numeric(tab["Intervention", "Death"])  # Deaths in the intervention group
+b <- as.numeric(tab["Intervention", "Alive"])  # Survivors in the intervention group
+c <- as.numeric(tab["Control", "Death"])       # Deaths in the control group
+d <- as.numeric(tab["Control", "Alive"])       # Survivors in the control group
+
+# Define group totals.
+n_intervention <- a + b      # Total number of patients in the intervention group
+n_control <- c + d    # Total number of patients in the control group
+n_total <- n_intervention + n_control
+
+```
+
+# 7) Risk
+
+Risk represents the probability of hospital death during the observed hospitalization period.
+
+For the intervention group:
+\[Risk_{intervention} = \frac{a}{a+b}\]
+
+For the control group:
+\[Risk_{control} = \frac{c}{c+d}\]
+
+```{r risk-calculation}
+# Calculate the risk of death in the intervention group.
+risk_intervention <- a / (a + b)
+
+# Calculate the risk of death in the control group.
+risk_control <- c / (c + d)
+
+# Convert risks to percentages for clinical interpretation.
+risk_intervention_percent <- risk_intervention * 100
+risk_control_percent <- risk_control * 100
+```
+# 8) Relative Risk
+
+Relative risk, also called the risk ratio, compares the risk of the event in the intervention group with the risk of the event in the control group.
+
+\[Relative\ Risk = RR = \frac{Risk_{intervention}}{Risk_{control}}\]
+
+Using the 2 × 2 table notation:
+
+\[RR = \frac{a/(a+b)}{c/(c+d)}\]
+
+```{r relative-risk-calculation}
+# Calculate the relative risk.
+relative_risk <- risk_intervention / risk_control
+
+```
+
+# 9) Odds
+Odds express the probability of the event divided by the probability of the event not occurring.
+
+For the intervention group:
+
+\[Odds_{intervention} = \frac{a}{b}\]
+
+For the control group:
+
+\[Odds_{control} = \frac{c}{d}\]
+
+```{r odds-calculation}
+# Calculate the odds of death in the intervention group.
+odds_intervention <- a / b
+
+# Calculate the odds of death in the control group.
+odds_control <- c / d
+
+```
+
+# 10) Odds Ratio
+The odds ratio compares the odds of the event in the intervention group with the odds of the event in the control group.
+\[Odds\ Ratio = OR = \frac{Odds_{intervention}}{Odds_{control}}\]
+
+Using the 2 × 2 table notation:
+\[OR = \frac{a/b}{c/d}\]
+
+This can also be written as:
+
+\[OR = \frac{a \times d}{b \times c}\]
+
+```{r odds-ratio-calculation}
+# Calculate the odds ratio directly from the odds.
+odds_ratio <- odds_intervention / odds_control
+
+# Calculate the same odds ratio using the cross-product formula.
+odds_ratio_cross_product <- (a * d) / (b * c)
+
+```
+
+# Final Summary
+
+```{r final-summary}
+final_summary_table <- tibble(
+  Measure = c(
+    "Risk of death in intervention group",
+    "Risk of death in control group",
+    "Relative risk",
+    "Odds of death in intervention group",
+    "Odds of death in control group",
+    "Odds ratio"
+  ),
+  Formula = c(
+    "a / (a + b)",
+    "c / (c + d)",
+    "[a / (a + b)] / [c / (c + d)]",
+    "a / b",
+    "c / d",
+    "(a / b) / (c / d) = (a × d) / (b × c)"
+  ),
+  Estimation = c(
+    risk_intervention,
+    risk_control,
+    relative_risk,
+    odds_intervention,
+    odds_control,
+    odds_ratio
+  ),
+  Interpretation = c(
+    "Probability of death among patients in the intervention group.",
+    "Probability of death among patients in the control group.",
+    "Probability of death among patients in the intervention group compares to the probability in the control group.",
+    "Odds of death relative to survival in the intervention group.",
+    "Odds of death relative to survival in the control group.",
+    "Odds of death odds in the intervention group compares to the odds in the control group."
+  )
+)
+
+final_summary_table %>%
+  kable(
+    digits = 2,
+    caption = "Reporting risk and odds in clinical research"
+  )
+```
+
+---
+
+## End of document
