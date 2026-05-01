@@ -1,0 +1,279 @@
+
+title: "Diagnostic Accuracy Measures in Clinical Epidemiology"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+
+```{r setup}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# 1) Purpose
+
+This R Markdown document provides a step-by-step analytical guide for estimating and interpreting key measures of diagnostic and prognostic performance in clinical epidemiology.
+
+Using the attached dataset, this report demonstrates how to calculate and interpret:
+
+1. **Sensitivity**
+2. **Specificity**
+3. **Positive and negative predictive values**
+4. **Positive and negative likelihood ratios**
+5. **Area under the receiver operating characteristic curve (AUC)**
+
+This report estimates diagnostic/prognostic performance measures using:
+
+- `outcome`: reference outcome (`0 = alive`, `1 = death`);
+- `vasopressor`: binary index marker (`0 = no`, `1 = yes`);
+- `saps_3`: continuous severity score for ROC/AUC analysis.
+
+The event of interest is **hospital death**.
+Because vasopressor use is not a diagnostic test in the usual sense, the binary measures should be interpreted as **prognostic classification measures** for hospital death, not as evidence that vasopressors cause death.
+
+# 2) Packages
+
+```{r packages}
+# Install these packages once if necessary:
+# install.packages(c("readxl", "dplyr", "janitor", "tibble", "knitr", "pROC", "skimr"))
+
+library(readxl)
+library(dplyr)
+library(janitor)
+library(tibble)
+library(knitr)
+library(pROC)
+library(skimr)
+```
+
+# 3) Data Import (Excel)
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+```{r import-data}
+
+data <- read_excel("data.xlsx", sheet = "Data") 
+
+```
+
+# 4) Confirm Required Variables
+
+For the requested calculations, we need:
+- `outcome` (0 = Alive, 1 = Dead)
+- `vasopressor` (0 = no, 1 = yes)
+
+
+```{r verify-vars-2}
+# Quick frequency checks
+skimr::skim(data)
+
+data %>% 
+  tabyl(outcome)
+
+data %>% 
+  tabyl(vasopressor)
+
+```
+
+# 5) Create the Analysis Dataset
+
+Define the variables used in this analysis
+- `reference_var`: the true disease or outcome status. Here, hospital death is the event of interest.
+- `binary_test_var`: the binary index test or clinical indicator evaluated against the reference outcome.
+- `continuous_marker_var`: the continuous marker used to estimate ROC/AUC.
+
+```{r define-variables}
+# Reference standard:
+disease <- data$outcome
+test <- data$vasopressor
+score <- as.numeric(data$saps_3)
+
+
+# Create the analytical dataset
+analysis_data <- data.frame(disease, test)
+analysis_data <- analysis_data[complete.cases(analysis_data), ]
+
+```
+
+# 6) Construct the 2×2 Table
+
+For a binary test evaluated against a binary reference standard, the data can be represented as follows:
+- **TP** = true positives: test positive and disease positive
+- **FP** = false positives: test positive and disease negative
+- **FN** = false negatives: test negative and disease positive
+- **TN** = true negatives: test negative and disease negative
+
+```{r contingency-table}
+# Construct the 2 x 2 table.
+tab <- table(
+  Test = factor(analysis_data$test, levels = c(1, 0), labels = c("Positive", "Negative")),
+  Disease = factor(analysis_data$disease, levels = c(1, 0), labels = c("Present", "Absent"))
+)
+tab
+# Extract the four fundamental cells of the 2 x 2 table.
+TP <- tab["Positive", "Present"]
+FP <- tab["Positive", "Absent"]
+FN <- tab["Negative", "Present"]
+TN <- tab["Negative", "Absent"]
+
+```
+
+# 7) Step-by-Step Calculation of Diagnostic Accuracy Measures
+
+## 7.1 Sensitivity
+
+Sensitivity is the probability that the test is positive among individuals who truly have the condition or outcome.
+
+\[\text{Sensitivity} = \frac{TP}{TP + FN}\]
+
+```{r sensitivity}
+sensitivity <- TP / (TP + FN)
+sensitivity
+```
+
+## 7.2 Specificity
+
+Specificity is the probability that the test is negative among individuals who truly do not have the condition or outcome.
+
+\[\text{Specificity} = \frac{TN}{TN + FP}\]
+
+```{r specificity}
+specificity <- TN / (TN + FP)
+specificity
+```
+
+## 7.3 Positive Predictive Value
+
+The positive predictive value is the probability of having the condition or outcome among individuals with a positive test.
+
+\[\text{PPV} = \frac{TP}{TP + FP}\]
+
+```{r ppv}
+positive_predictive_value <- TP / (TP + FP)
+positive_predictive_value
+```
+
+## 7.4 Negative Predictive Value
+
+The negative predictive value is the probability of not having the condition or outcome among individuals with a negative test.
+
+\[\text{NPV} = \frac{TN}{TN + FN}\]
+
+```{r npv}
+negative_predictive_value <- TN / (TN + FN)
+negative_predictive_value
+```
+
+## 7.5 Positive Likelihood Ratio
+
+The positive likelihood ratio indicates how many times more likely a positive test result is among individuals with the condition than among individuals without the condition.
+
+\[\text{LR+} = \frac{\text{Sensitivity}}{1 - \text{Specificity}}\]
+
+```{r lr-positive}
+positive_likelihood_ratio <- sensitivity / (1 - specificity)
+positive_likelihood_ratio
+```
+
+## 7.6 Negative Likelihood Ratio
+
+The negative likelihood ratio indicates how many times less likely a negative test result is among individuals with the condition than among individuals without the condition.
+
+\[\text{LR-} = \frac{1 - \text{Sensitivity}}{\text{Specificity}}\]
+
+```{r lr-negative}
+negative_likelihood_ratio <- (1 - sensitivity) / specificity
+negative_likelihood_ratio
+```
+
+# 8) Summary Table of Diagnostic Accuracy Measures
+
+```{r final-summary}
+
+format_percent <- function(x, digits = 1) {
+  ifelse(is.na(x), NA_character_, paste0(round(100 * x, digits), "%"))
+}
+
+format_number <- function(x, digits = 2) {
+  ifelse(is.na(x), NA_character_, format(round(x, digits), nsmall = digits))
+}
+
+final_summary_table <- tibble(
+  Measure = c(
+    "Sensitivity",
+    "Specificity",
+    "Positive predictive value",
+    "Negative predictive value",
+    "Positive likelihood ratio",
+    "Negative likelihood ratio"
+  ),
+  Formula = c(
+    "TP / (TP + FN)",
+    "TN / (TN + FP)",
+    "TP / (TP + FP)",
+    "TN / (TN + FN)",
+    "Sensitivity / (1 - Specificity)",
+    "(1 - Sensitivity) / Specificity"
+  ),
+  Estimate = c(
+    format_percent(sensitivity),
+    format_percent(specificity),
+    format_percent(positive_predictive_value),
+    format_percent(negative_predictive_value),
+    format_number(positive_likelihood_ratio),
+    format_number(negative_likelihood_ratio)
+  )
+)
+
+kable(final_summary_table, digits = 3)
+```
+
+# 9) ROC Curve and Area Under the Curve
+
+```{r auc}
+# Keep only complete observations for the outcome and continuous predictor. Disease: binary outcome; 0 = non-event, 1 = event.
+roc_data <- data.frame(
+  disease = disease,
+  score = score)
+roc_data <- roc_data[complete.cases(roc_data), ]
+
+# Estimate the ROC curve.
+roc_obj <- pROC::roc(
+  response = roc_data$disease,
+  predictor = roc_data$score,
+  levels = c(0, 1),
+  direction = "<",
+  ci = TRUE,
+  quiet = TRUE
+)
+
+# Extract AUC and 95% confidence interval.
+AUC = round(as.numeric(pROC::auc(roc_obj)), 3)
+CI_95_lower = round(as.numeric(roc_obj$ci[1]), 3)
+CI_95_upper = round(as.numeric(roc_obj$ci[3]), 3)
+
+
+
+
+# Plot ROC curve.
+plot(
+  roc_obj,
+  ylim = c(0, 1),
+  asp = 1,
+  col = "#2C7BB6",
+  lwd = 2,
+  grid = TRUE,
+  main = "ROC Curve: SAPS 3 Predicting Hospital Death",
+  legacy.axes = TRUE,
+  print.auc = TRUE
+)
+
+
+abline(a = 0, b = 1, lty = 2, col = "gray70")
+```
+
+## End of document
