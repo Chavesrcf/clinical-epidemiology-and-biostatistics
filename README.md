@@ -28,6 +28,7 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Observational studies in clinical research
 - Randomized controlled trials
 - Relative and absolute measures of effect in clinical research.
+- Reporting diagnostic accuracy in clinical research
 - Reporting descriptive statistics in clinical research.
 - Reporting disease frequency in clinical research
 - Risk, relative risk, odds, and odds ratio.
