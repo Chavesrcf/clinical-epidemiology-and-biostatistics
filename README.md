@@ -24,29 +24,30 @@ They do not correspond to real patients and contain no identifiable or sensitive
 
 **Topics Covered**
 - Beyond statistical significance: interpretation and reporting of p values and confidence intervals.
+- Calculating adequate sample size across clinical scenarios.
 - Clinical trials phases.
-- Observational studies in clinical research
-- Randomized controlled trials
+- Observational studies in clinical research.
+- Randomized controlled trials.
 - Relative and absolute measures of effect in clinical research.
-- Reporting diagnostic accuracy in clinical research
+- Reporting diagnostic accuracy in clinical research.
 - Reporting descriptive statistics in clinical research.
-- Reporting disease frequency in clinical research
+- Reporting disease frequency in clinical research.
 - Risk, relative risk, odds, and odds ratio.
-- Systematic reviews and meta-analyses
+- Systematic reviews and meta-analyses.
 
 
 **Reproducibility**
 All analyses are designed to be fully reproducible.
 Requirements:
-- R (recommended: latest version)
-- Python (recommended: ≥ 3.10)
+- R (recommended: latest version).
+- Python (recommended: ≥ 3.10).
 
 **Purpose**
 This repository aims to:
-- Support teaching in clinical epidemiology and biostatistics
-- Provide practical, hands-on examples
-- Facilitate understanding of core methodological concepts
-- Serve as a reference for students, clinicians, and researchers
+- Support teaching in clinical epidemiology and biostatistics.
+- Provide practical, hands-on examples.
+- Facilitate understanding of core methodological concepts.
+- Serve as a reference for students, clinicians, and researchers.
 
 **Authors**
 Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa.
