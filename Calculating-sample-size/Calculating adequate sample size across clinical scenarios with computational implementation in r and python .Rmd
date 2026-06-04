@@ -1,0 +1,368 @@
+---
+title: "Calculating adequate sample size across clinical scenarios with computational implementation in r and python"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# 1) Purpose
+
+This document presents a practical R Markdown document for sample-size calculations in common clinical and epidemiological scenarios.
+
+The examples use a small number of parameters that can be edited directly by the researcher.
+
+
+# 2) Packages
+```{r packages}
+# Install once if necessary:
+# install.packages(c("readxl", "dplyr", "tibble", "janitor", "knitr"))
+
+library(readxl)
+library(dplyr)
+library(tibble)
+library(janitor)
+library(knitr)
+```
+
+# 3) Data Import (Excel)
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+
+- `group`: 0 = control, 1 = intervention
+- `outcome`: 0 = no event, 1 = event
+
+```{r import-data}
+
+data <- read_excel("data.xlsx", sheet = "Data") 
+
+```
+
+# 4) User-defined parameters
+
+Edit this block according to your study.
+
+```{r parameters}
+# General parameters
+alpha <- 0.05
+power <- 0.80
+attrition <- 0.10
+
+
+group_var <- "group"       # 0 = Control, 1 = Intervention
+outcome_var <- "outcome"   # 0 = No event, 1 = Event
+continuous_var <- "continuous_outcome"
+
+# Example assumptions used below
+precision_prevalence <- 0.05
+precision_mean <- 3
+minimal_difference_mean <- 5
+
+p_control_default <- 0.25
+p_intervention_default <- 0.15
+sd_default <- 10
+
+odds_ratio <- 2.0
+p_exposed_controls <- 0.20
+
+sensitivity <- 0.85
+specificity <- 0.90
+precision_sensitivity <- 0.07
+precision_specificity <- 0.05
+disease_prevalence <- 0.20
+
+```
+
+
+# 5) Simple descriptive estimates from the dataset
+
+These estimates are optional. They are useful for demonstration, but the final assumptions should be clinically justified before being used in a study protocol.
+
+```{r descriptive-estimates}
+overall_event_risk <- mean(data$outcome, na.rm = TRUE)
+
+risk_by_group <- data %>%
+  group_by(group) %>%
+  summarise(
+    n = n(),
+    event_risk = mean(outcome, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+kable(risk_by_group, digits = 3, caption = "Observed event risk by group")
+```
+
+```{r assumptions-from-data}
+# Data-informed values for the examples.
+# Replace these with protocol-defined assumptions whenever appropriate.
+
+risk_control <- risk_by_group$event_risk[match(0, risk_by_group$group)]
+risk_intervention <- risk_by_group$event_risk[match(1, risk_by_group$group)]
+
+risk_control <- coalesce(risk_control, p_control_default)
+risk_intervention <- coalesce(risk_intervention, p_intervention_default)
+
+continuous_sd <- sd(data[[continuous_var]], na.rm = TRUE)
+continuous_sd <- coalesce(continuous_sd, sd_default)
+
+assumptions <- tibble(
+  parameter = c(
+    "overall_event_risk",
+    "risk_control",
+    "risk_intervention",
+    "continuous_sd",
+    "alpha",
+    "power",
+    "attrition"
+  ),
+  value = c(
+    overall_event_risk,
+    risk_control,
+    risk_intervention,
+    continuous_sd,
+    alpha,
+    power,
+    attrition
+  )
+)
+
+kable(assumptions, digits = 3, caption = "Main assumptions used in the examples")
+```
+
+# 6) Useful constants
+
+```{r constants}
+z_alpha <- qnorm(1 - alpha / 2)
+z_power <- qnorm(power)
+
+constants <- tibble(
+  parameter = c("Z for alpha", "Z for power"),
+  value = c(z_alpha, z_power)
+)
+
+kable(constants, digits = 3, caption = "Statistical constants")
+```
+
+# 7) Scenario 1: prevalence survey
+
+For a single proportion estimated with absolute precision:
+
+\[n = \frac{Z_{1-\alpha/2}^{2}p(1-p)}{d^2}\]
+
+```{r prevalence-survey}
+p <- overall_event_risk
+d <- precision_prevalence
+
+n_prevalence <- z_alpha^2 * p * (1 - p) / d^2
+n_prevalence_final <- ceiling(n_prevalence / (1 - attrition))
+
+prevalence_result <- tibble(
+  scenario = "Prevalence survey",
+  expected_prevalence = p,
+  precision = d,
+  sample_size_before_attrition = ceiling(n_prevalence),
+  final_sample_size = n_prevalence_final
+)
+
+kable(prevalence_result, digits = 3, caption = "Sample size for estimating a prevalence")
+```
+
+# 8) Scenario 2: estimating a single mean
+
+For a single mean estimated with absolute precision:
+
+\[n = \frac{Z_{1-\alpha/2}^{2}\sigma^2}{d^2}\]
+
+```{r single-mean}
+sigma <- continuous_sd
+d <- precision_mean
+
+n_single_mean <- z_alpha^2 * sigma^2 / d^2
+n_single_mean_final <- ceiling(n_single_mean / (1 - attrition))
+
+single_mean_result <- tibble(
+  scenario = "Single mean",
+  expected_sd = sigma,
+  precision = d,
+  sample_size_before_attrition = ceiling(n_single_mean),
+  final_sample_size = n_single_mean_final
+)
+
+kable(single_mean_result, digits = 3, caption = "Sample size for estimating a single mean")
+```
+
+# 9) Scenario 3: two independent proportions
+
+For equal allocation and a two-sided superiority test:
+
+\[n_{per\ group} = \frac{\left[Z_{1-\alpha/2}\sqrt{2\bar{p}(1-\bar{p})} +
+Z_{1-\beta}\sqrt{p_1(1-p_1) + p_2(1-p_2)}\right]^2}{(p_1 - p_2)^2}
+\]
+
+```{r two-proportions}
+p1 <- risk_control
+p2 <- risk_intervention
+p_bar <- (p1 + p2) / 2
+risk_difference <- abs(p1 - p2)
+
+n_two_prop_group <- (
+  z_alpha * sqrt(2 * p_bar * (1 - p_bar)) +
+    z_power * sqrt(p1 * (1 - p1) + p2 * (1 - p2))
+)^2 / risk_difference^2
+
+n_two_prop_group_final <- ceiling(n_two_prop_group / (1 - attrition))
+
+# Optional alternative using base R:
+# power.prop.test(p1 = p1, p2 = p2, power = power, sig.level = alpha)$n
+
+two_prop_result <- tibble(
+  scenario = "Two independent proportions",
+  control_event_risk = p1,
+  intervention_event_risk = p2,
+  absolute_risk_difference = p2 - p1,
+  sample_size_per_group_before_attrition = ceiling(n_two_prop_group),
+  final_sample_size_per_group = n_two_prop_group_final,
+  final_total_sample_size = 2 * n_two_prop_group_final
+)
+
+kable(two_prop_result, digits = 3, caption = "Sample size for comparing two proportions")
+```
+
+# 10) Scenario 4: two independent means
+
+\[n_{per\ group} = \frac{2\sigma^2\left(Z_{1-\alpha/2} + Z_{1-\beta}\right)^2}{\Delta^2}\]
+
+```{r two-means}
+sigma <- continuous_sd
+delta <- minimal_difference_mean
+
+n_two_means_group <- 2 * sigma^2 * (z_alpha + z_power)^2 / delta^2
+n_two_means_group_final <- ceiling(n_two_means_group / (1 - attrition))
+
+# Optional alternative using base R:
+# power.t.test(delta = delta, sd = sigma, power = power,
+#              sig.level = alpha, type = "two.sample")$n
+
+two_means_result <- tibble(
+  scenario = "Two independent means",
+  expected_sd = sigma,
+  clinically_meaningful_difference = delta,
+  sample_size_per_group_before_attrition = ceiling(n_two_means_group),
+  final_sample_size_per_group = n_two_means_group_final,
+  final_total_sample_size = 2 * n_two_means_group_final
+)
+
+kable(two_means_result, digits = 3, caption = "Sample size for comparing two means")
+```
+
+# 11) Scenario 5: unmatched case-control study
+
+The expected exposure among cases can be approximated from the exposure prevalence among controls and the odds ratio:
+
+\[
+p_1 = \frac{OR \times p_0}{1 - p_0 + OR \times p_0}
+\]
+
+```{r case-control}
+p0 <- p_exposed_controls
+p1 <- odds_ratio * p0 / (1 - p0 + odds_ratio * p0)
+p_bar <- (p0 + p1) / 2
+exposure_difference <- abs(p1 - p0)
+
+n_case_control_group <- (
+  z_alpha * sqrt(2 * p_bar * (1 - p_bar)) +
+    z_power * sqrt(p0 * (1 - p0) + p1 * (1 - p1))
+)^2 / exposure_difference^2
+
+n_case_control_group_final <- ceiling(n_case_control_group / (1 - attrition))
+
+case_control_result <- tibble(
+  scenario = "Unmatched case-control study",
+  exposure_prevalence_controls = p0,
+  expected_odds_ratio = odds_ratio,
+  exposure_prevalence_cases = p1,
+  sample_size_per_group_before_attrition = ceiling(n_case_control_group),
+  final_sample_size_per_group = n_case_control_group_final,
+  final_total_sample_size = 2 * n_case_control_group_final
+)
+
+kable(case_control_result, digits = 3, caption = "Sample size for an unmatched case-control study")
+```
+
+# 12) Scenario 6: diagnostic-accuracy study
+
+For sensitivity:
+
+\[n_{diseased} = \frac{Z_{1-\alpha/2}^{2}Se(1-Se)}{d_{Se}^{2}}\]
+
+For specificity:
+
+\[n_{non-diseased} = \frac{Z_{1-\alpha/2}^{2}Sp(1-Sp)}{d_{Sp}^{2}}\]
+
+```{r diagnostic-accuracy}
+n_diseased <- z_alpha^2 * sensitivity * (1 - sensitivity) / precision_sensitivity^2
+n_nondiseased <- z_alpha^2 * specificity * (1 - specificity) / precision_specificity^2
+
+total_for_sensitivity <- ceiling(n_diseased / disease_prevalence)
+total_for_specificity <- ceiling(n_nondiseased / (1 - disease_prevalence))
+total_diagnostic <- max(total_for_sensitivity, total_for_specificity)
+total_diagnostic_final <- ceiling(total_diagnostic / (1 - attrition))
+
+diagnostic_result <- tibble(
+  scenario = "Diagnostic-accuracy study",
+  expected_sensitivity = sensitivity,
+  expected_specificity = specificity,
+  disease_prevalence = disease_prevalence,
+  diseased_required = ceiling(n_diseased),
+  nondiseased_required = ceiling(n_nondiseased),
+  total_before_attrition = total_diagnostic,
+  final_total_sample_size = total_diagnostic_final
+)
+
+kable(diagnostic_result, digits = 3, caption = "Sample size for a diagnostic-accuracy study")
+```
+
+# 13) Final summary
+
+```{r final-summary}
+final_summary_table <- tibble(
+  Scenario = c(
+    "Prevalence survey",
+    "Single mean",
+    "Two independent proportions",
+    "Two independent means",
+    "Unmatched case-control study",
+    "Diagnostic-accuracy study"
+  ),
+  Sample_size = c(
+    prevalence_result$final_sample_size,
+    single_mean_result$final_sample_size,
+    two_prop_result$final_total_sample_size,
+    two_means_result$final_total_sample_size,
+    case_control_result$final_total_sample_size,
+    diagnostic_result$final_total_sample_size
+  ),
+  Note = c(
+    "Total participants",
+    "Total participants",
+    "Total participants",
+    "Total participants",
+    "Cases plus controls",
+    "Total participants"
+  )
+)
+
+kable(final_summary_table, digits = 0, caption = "Final summary table of sample-size calculations")
+```
+
+# End of document
