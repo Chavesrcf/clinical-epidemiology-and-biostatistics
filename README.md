@@ -26,6 +26,7 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Beyond statistical significance: interpretation and reporting of p values and confidence intervals.
 - Calculating adequate sample size across clinical scenarios.
 - Clinical trials phases.
+- Correlation and linear regression in clinical and public health research.
 - Observational studies in clinical research.
 - Randomized controlled trials.
 - Relative and absolute measures of effect in clinical research.
