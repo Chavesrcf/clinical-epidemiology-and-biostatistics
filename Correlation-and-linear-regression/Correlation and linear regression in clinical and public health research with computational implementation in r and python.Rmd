@@ -1,0 +1,366 @@
+
+title: "Correlation and linear regression in clinical and public health research with computational implementation in r and python"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# 1) Purpose
+
+This R Markdown document provides a clear, step-by-step analytical guide for evaluating the relationship between two continuous clinical variables using **correlation** and **linear regression**.
+
+The applied objective is to use the attached clinical dataset to answer the following questions:
+
+1. Is patient age linearly associated with serum creatinine at ICU admission?
+2. How much does mean serum creatinine change, on average, for each additional year of age?
+3. How should the statistical estimates be interpreted in clinical and epidemiological terms?
+
+
+# 2) Packages
+
+```{r packages}
+# Install once if necessary:
+# install.packages("readxl")
+
+library(readxl)
+```
+
+# 3) Data Import (Excel)
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+```{r import-data}
+data <- read_excel("data.xlsx", sheet = "Data") 
+
+```
+# 4)  Variable Definitions and Data Inspection
+Before conducting statistical analysis, the investigator should inspect the structure of the dataset, confirm the variable names, and review the first rows.
+
+
+The main variables used in this report are:
+- `age`: patient age at ICU admission, measured in years.
+- `creatinine`: serum creatinine level, measured in mg/dL.
+- `saps_3`: Simplified Acute Physiology Score 3 at ICU admission.
+- `chronic_kidney_disease`: indicator of chronic kidney dysfunction, coded as 0 = no and 1 = yes.
+- `vasopressor`: use of any vasopressor at ICU admission, coded as 0 = no and 1 = yes.
+- `outcome`: vital status at hospital discharge, coded as 0 = alive and 1 = dead.
+
+```{r inspect-data}
+# Number of rows and columns.
+dim(data)
+
+# Variable names.
+names(data)
+
+# First six records.
+head(data)
+```
+
+# 5) Basic Data Preparation
+
+The primary analysis requires complete observations for `age` and `creatinine`. These variables are converted to numeric format to avoid problems caused by accidental text import.
+
+```{r prepare-data}
+# Start from the imported dataset.
+analysis_data <- data
+
+# Convert the continuous variables to numeric values.
+analysis_data$age <- as.numeric(analysis_data$age)
+analysis_data$creatinine <- as.numeric(analysis_data$creatinine)
+analysis_data$saps_3 <- as.numeric(analysis_data$saps_3)
+
+# Convert binary clinical indicators to numeric values first.
+# This step is useful if the variables were imported as text.
+analysis_data$chronic_kidney_disease <- as.numeric(analysis_data$chronic_kidney_disease)
+analysis_data$vasopressor <- as.numeric(analysis_data$vasopressor)
+
+# Remove records with missing values in any variable used in the analyses.
+# Applying complete-case selection after numeric conversion prevents accidental
+# retention of values that become missing during conversion.
+analysis_data <- analysis_data[
+  complete.cases(analysis_data[, c(
+    "age",
+    "creatinine",
+    "saps_3",
+    "chronic_kidney_disease",
+    "vasopressor"
+  )]),
+]
+
+# Convert binary indicators to factors for clearer regression output.
+# The reference category is "No" for both variables.
+analysis_data$chronic_kidney_disease <- factor(
+  analysis_data$chronic_kidney_disease,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+analysis_data$vasopressor <- factor(
+  analysis_data$vasopressor,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+# Confirm the analytic sample size and the observed age range.
+n <- nrow(analysis_data)
+n
+range(analysis_data$age)
+
+# Summarize the two primary continuous variables.
+summary(analysis_data[, c("age", "creatinine")])
+```
+
+# 6) Graphical inspection before modeling
+
+A scatterplot should precede correlation and regression.
+
+```{r scatterplot, fig.width=7, fig.height=5}
+plot(
+  analysis_data$age,
+  analysis_data$creatinine,
+  xlab = "Age at ICU admission (years)",
+  ylab = "Serum creatinine (mg/dL)",
+  main = "Scatterplot of age and serum creatinine",
+  pch = 19
+)
+```
+
+# 7) Pearson Correlation
+The value of the Pearson correlation coefficient ranges from -1 to +1.
+Values near +1 indicate a strong positive linear association, values near -1 indicate a strong negative linear association, and values near 0 indicate little or no linear association.
+Calculation of Correlation Test and Confidence Interval are described above
+
+
+```{r correlation-test}
+correlation_result <- cor.test(
+  analysis_data$age,
+  analysis_data$creatinine,
+  method = "pearson",
+  conf.level = 0.95
+)
+
+correlation_result
+```
+
+## 8 Interpretation of correlation
+Clinical interpretation should focus on direction, magnitude, uncertainty, and plausibility. A positive value suggests that older patients tend to have higher creatinine values, whereas a negative value suggests that older patients tend to have lower creatinine values. A correlation close to zero does not exclude nonlinear relationships or subgroup-specific patterns.
+
+```{r correlation-summary}
+r_value <- unname(correlation_result$estimate)
+r_ci_low <- correlation_result$conf.int[1]
+r_ci_high <- correlation_result$conf.int[2]
+r_p_value <- correlation_result$p.value
+
+correlation_summary <- data.frame(
+  measure = c("Pearson correlation coefficient", "95% CI lower bound", "95% CI upper bound", "P value"),
+  value = c(r_value, r_ci_low, r_ci_high, r_p_value)
+)
+
+knitr::kable(correlation_summary, digits = 3, caption = "Pearson correlation between age and creatinine")
+```
+# 9) Fitting the Regression Model with `lm()`
+
+Simple linear regression models the conditional mean of a continuous outcome:
+\[E(Y_i|X_i) = \beta_0 + \beta_1X_i\]
+
+For the present analysis:
+\[E(\text{creatinine}_i|\text{age}_i) = \beta_0 + \beta_1 \times \text{age}_i\]
+
+```{r simple-regression}
+simple_model <- lm(creatinine ~ age, data = analysis_data)
+
+summary(simple_model)
+```
+
+## 10 Regression Coefficients and 95% Confidence Intervals
+
+
+```{r simple-regression-ci}
+# Coefficient table from the fitted model.
+coef_table <- summary(simple_model)$coefficients
+
+# 95% confidence intervals for the intercept and slope.
+coef_ci <- confint(simple_model, level = 0.95)
+
+# Combine estimates and confidence intervals in one table.
+simple_regression_results <- data.frame(
+  term = rownames(coef_table),
+  estimate = coef_table[, "Estimate"],
+  standard_error = coef_table[, "Std. Error"],
+  p_value = coef_table[, "Pr(>|t|)"],
+  ci_low = coef_ci[, 1],
+  ci_high = coef_ci[, 2]
+)
+
+knitr::kable(simple_regression_results, digits = 4, caption = "Simple linear regression: creatinine as a function of age")
+```
+
+## 11 Coefficient of determination
+
+The coefficient of determination is:
+
+\[R^2 = 1 - \frac{\sum_{i=1}^{n}(Y_i - \hat{Y}_i)^2}{\sum_{i=1}^{n}(Y_i - \bar{Y})^2}\]
+
+where:
+
+- \(\hat{Y}_i\) is the fitted creatinine value for patient \(i\).
+- \(R^2\) is the proportion of observed variability in creatinine explained by the model.
+
+In simple linear regression with one predictor and an intercept, \(R^2 = r^2\).
+
+```{r r-squared}
+r_squared_model <- summary(simple_model)$r.squared
+r_squared_from_correlation <- r_value^2
+
+r_squared_summary <- data.frame(
+  measure = c("R-squared from regression", "Squared Pearson correlation"),
+  value = c(r_squared_model, r_squared_from_correlation)
+)
+
+knitr::kable(r_squared_summary, digits = 4, caption = "Relationship between R-squared and Pearson correlation")
+```
+
+# 12) Fitted values and residuals
+
+```{r fitted-residuals}
+analysis_data$fitted_creatinine <- fitted(simple_model)
+analysis_data$residual <- resid(simple_model)
+
+head(analysis_data[, c("patient", "age", "creatinine", "fitted_creatinine", "residual")])
+```
+
+```{r regression-line, fig.width=7, fig.height=5}
+plot(
+  analysis_data$age,
+  analysis_data$creatinine,
+  xlab = "Age at ICU admission (years)",
+  ylab = "Serum creatinine (mg/dL)",
+  main = "Linear regression of creatinine on age",
+  pch = 19
+)
+abline(simple_model, lwd = 2)
+```
+
+# 13) Model Diagnostics
+Linear regression should not be interpreted only from the coefficient table.
+The following diagnostic plots evaluate model assumptions and influential observations.
+
+Interpretation of diagnostic plots:
+- The residuals-versus-fitted plot helps assess nonlinearity and unequal variance.
+- The normal Q-Q plot helps evaluate whether residuals are approximately normally distributed.
+- The scale-location plot helps evaluate heteroscedasticity.
+- The residuals-versus-leverage plot helps identify influential observations.
+
+
+```{r diagnostics, fig.width=7, fig.height=7}
+par(mfrow = c(2, 2))
+plot(simple_model)
+par(mfrow = c(1, 1))
+```
+# 14) Adjusted Linear Regression
+
+Clinical and public health analyses often require adjustment for other measured factors.
+In this example, creatinine is modeled as a function of age, severity of illness, chronic kidney disease, and vasopressor use.
+The binary variables `chronic_kidney_disease` and `vasopressor` are represented as factors with `No` as the reference category.
+
+```{r adjusted-regression}
+adjusted_model <- lm(
+  creatinine ~ age + saps_3 + chronic_kidney_disease + vasopressor,
+  data = analysis_data
+)
+
+summary(adjusted_model)
+```
+
+```{r adjusted-regression-table}
+adj_coef_table <- summary(adjusted_model)$coefficients
+adj_coef_ci <- confint(adjusted_model, level = 0.95)
+
+adjusted_regression_results <- data.frame(
+  term = rownames(adj_coef_table),
+  estimate = adj_coef_table[, "Estimate"],
+  standard_error = adj_coef_table[, "Std. Error"],
+  p_value = adj_coef_table[, "Pr(>|t|)"],
+  ci_low = adj_coef_ci[, 1],
+  ci_high = adj_coef_ci[, 2]
+)
+
+knitr::kable(adjusted_regression_results, digits = 4, caption = "Adjusted linear regression results")
+```
+
+# 15) Predicted Mean Creatinine for Selected Ages
+
+These predictions should be interpreted only within the observed or clinically plausible range of age in the dataset.
+The code below uses confidence intervals for the expected mean creatinine, not prediction intervals for individual patients.
+
+These intervals estimate uncertainty around the expected mean creatinine at each selected age.
+They should not be interpreted as the expected range for an individual patient's creatinine value. For individual-level prediction, the argument `interval = "prediction"` would be required.
+
+
+```{r predictions}
+new_patients <- data.frame(age = c(40, 60, 80))
+
+predicted_creatinine <- predict(
+  simple_model,
+  newdata = new_patients,
+  interval = "confidence",
+  level = 0.95
+)
+
+prediction_table <- cbind(new_patients, predicted_creatinine)
+knitr::kable(prediction_table, digits = 3, caption = "Predicted mean creatinine at selected ages")
+
+# Example only: prediction intervals for individual patients would be requested as follows.
+predict(simple_model, newdata = new_patients, interval = "prediction", level = 0.95)
+```
+# 16) Final Summary Table
+
+```{r final-summary}
+format_p <- function(p) {
+  ifelse(p < 0.001, "<0.001", sprintf("%.3f", p))
+}
+
+slope_age <- simple_regression_results[simple_regression_results$term == "age", ]
+adj_slope_age <- adjusted_regression_results[adjusted_regression_results$term == "age", ]
+
+final_summary_table <- data.frame(
+  Analysis = c(
+    "Pearson correlation: age and creatinine",
+    "Simple regression slope: creatinine on age",
+    "Simple regression R-squared",
+    "Adjusted regression slope for age"
+  ),
+  Estimate = c(
+    sprintf("%.3f", r_value),
+    sprintf("%.4f", slope_age$estimate),
+    sprintf("%.3f", r_squared_model),
+    sprintf("%.4f", adj_slope_age$estimate)
+  ),
+  Confidence_interval = c(
+    paste0("95% CI ", sprintf("%.3f", r_ci_low), " to ", sprintf("%.3f", r_ci_high)),
+    paste0("95% CI ", sprintf("%.4f", slope_age$ci_low), " to ", sprintf("%.4f", slope_age$ci_high)),
+    "Not applicable",
+    paste0("95% CI ", sprintf("%.4f", adj_slope_age$ci_low), " to ", sprintf("%.4f", adj_slope_age$ci_high))
+  ),
+  P_value = c(
+    format_p(r_p_value),
+    format_p(slope_age$p_value),
+    "Not applicable",
+    format_p(adj_slope_age$p_value)
+  )
+)
+
+knitr::kable(final_summary_table, caption = "Final summary of correlation and linear regression analyses")
+```
+
+## End of document
