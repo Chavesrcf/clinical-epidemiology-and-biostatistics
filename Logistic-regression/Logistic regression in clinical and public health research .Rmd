@@ -1,0 +1,401 @@
+---
+title: "Logistic regression in clinical and public health research"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center"
+)
+```
+
+# 1) Purpose and analytical objective
+
+This R Markdown document is a didactic, step-by-step guide to logistic regression in clinical and public health research. The applied objective is to evaluate whether selected clinical characteristics are associated with hospital mortality, a binary outcome coded as 0 for survival and 1 for death.
+
+The analysis addresses four practical questions:
+
+1. How should variables, coding, missingness, and event frequency be inspected before fitting a logistic model?
+2. How can unadjusted and adjusted logistic regression models be fitted in R?
+3. How should odds ratios, 95% confidence intervals, and predicted probabilities be reported?
+4. How can discrimination and calibration be assessed in a simple educational format?
+
+
+# 2) Packages
+
+
+```{r packages}
+# Install once if necessary:
+# install.packages("readxl")
+
+library(readxl)
+library(knitr)
+```
+
+# 3) Data Import (Excel)
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+```{r import-data}
+data <- read_excel("data.xlsx", sheet = "Data") 
+
+```
+
+# 4)  Variable definitions and data inspection
+Before conducting statistical analysis, the investigator should inspect the structure of the dataset, confirm the variable names, and review the first rows.
+
+The main variables used in this report are:
+
+- `patient`: patient identifier.
+- `age`: patient age at ICU admission, measured in years.
+- `creatinine`: serum creatinine level, measured in mg/dL.
+- `saps_3`: Simplified Acute Physiology Score 3 at ICU admission.
+- `chronic_kidney_disease`: indicator of chronic kidney dysfunction, coded as 0 = no and 1 = yes.
+- `outcome`: vital status at hospital discharge, coded as 0 = alive and 1 = dead.
+
+```{r inspect-data}
+# Number of rows and columns.
+dim(data)
+
+# Variable names.
+names(data)
+
+# First six records.
+head(data)
+```
+
+# 5) Basic data preparation
+
+The main analysis uses complete observations for the outcome and selected predictors.
+
+```{r prepare-data}
+
+expected_variables <- c(
+  "patient", "age", "saps_3", "creatinine",
+  "chronic_kidney_disease", "outcome"
+)
+
+analysis_data <- data[, expected_variables]
+
+# Convert continuous variables to numeric.
+analysis_data$age <- as.numeric(analysis_data$age)
+analysis_data$saps_3 <- as.numeric(analysis_data$saps_3)
+analysis_data$creatinine <- as.numeric(analysis_data$creatinine)
+analysis_data$chronic_kidney_disease <- factor(
+  analysis_data$chronic_kidney_disease,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+# Keep complete observations for this educational demonstration.
+analysis_data <- analysis_data[complete.cases(analysis_data), ]
+```
+
+# 6) Descriptive clinical table
+
+```{r descriptive-table}
+descriptive_table <- data.frame(
+  Characteristic = c(
+    "Sample size",
+    "Age, mean (SD), years",
+    "SAPS 3, mean (SD)",
+    "Creatinine, median (IQR), mg/dL",
+    "Chronic kidney disease, n (%)",
+    "Hospital mortality, n (%)"
+  ),
+  Value = c(
+    nrow(analysis_data),
+    paste0(round(mean(analysis_data$age), 1), " (", round(sd(analysis_data$age), 1), ")"),
+    paste0(round(mean(analysis_data$saps_3), 1), " (", round(sd(analysis_data$saps_3), 1), ")"),
+    paste0(
+      round(median(analysis_data$creatinine), 2), " (",
+      round(quantile(analysis_data$creatinine, 0.25), 2), " to ",
+      round(quantile(analysis_data$creatinine, 0.75), 2), ")"
+    ),
+    paste0(
+      sum(analysis_data$chronic_kidney_disease == "Yes"), " (",
+      round(100 * mean(analysis_data$chronic_kidney_disease == "Yes"), 1), "%)"
+    ),
+    paste0(
+      sum(analysis_data$outcome == 1), " (",
+      round(100 * mean(analysis_data$outcome == 1), 1), "%)"
+    )
+  )
+)
+
+knitr::kable(descriptive_table, caption = "Descriptive characteristics of the analytic dataset")
+```
+
+# 7) Exploratory graph
+
+A binary outcome can be plotted against a continuous predictor, but the observed values can only be 0 or 1. The fitted curve below shows the estimated probability of death across age from a univariable logistic model.
+
+```{r exploratory-plot, fig.width=7, fig.height=5}
+age_only_model <- glm(outcome ~ age, data = analysis_data, family = binomial)
+
+plot(
+  analysis_data$age,
+  analysis_data$outcome,
+  xlab = "Age at admission (years)",
+  ylab = "Hospital mortality (0 = alive, 1 = dead)",
+  main = "Observed binary outcome and fitted logistic curve",
+  pch = 19
+)
+age_grid <- data.frame(
+  age = seq(min(analysis_data$age), max(analysis_data$age), length.out = 100)
+)
+age_grid$predicted_probability <- predict(
+  age_only_model,
+  newdata = age_grid,
+  type = "response"
+)
+lines(age_grid$age, age_grid$predicted_probability, lwd = 2)
+```
+
+# 8) Unadjusted logistic regression
+
+The unadjusted model evaluates the association between age and hospital mortality without adjustment for other predictors.
+Interpretation: the age odds ratio is the multiplicative change in the odds of death for each additional year of age, before adjustment for severity of illness, kidney function, or chronic kidney disease.
+
+```{r unadjusted-logistic}
+unadjusted_model <- glm(
+  outcome ~ age,
+  data = analysis_data,
+  family = binomial
+)
+
+unadj_coef <- summary(unadjusted_model)$coefficients
+unadj_ci_log <- confint.default(unadjusted_model, level = 0.95)
+
+unadjusted_results <- data.frame(
+  Term = rownames(unadj_coef),
+  Coefficient_log_odds = unadj_coef[, "Estimate"],
+  Standard_error = unadj_coef[, "Std. Error"],
+  OR = exp(unadj_coef[, "Estimate"]),
+  CI_low = exp(unadj_ci_log[, 1]),
+  CI_high = exp(unadj_ci_log[, 2]),
+  P_value = unadj_coef[, "Pr(>|z|)"]
+)
+
+knitr::kable(unadjusted_results, digits = 4, caption = "Unadjusted logistic regression for hospital mortality")
+```
+
+# 9) Adjusted logistic regression
+
+The adjusted model estimates the association between each predictor and mortality conditional on the other variables in the model.
+Interpretation: an adjusted odds ratio is conditional on all other variables in the model. It should not be interpreted as a risk ratio or as a direct multiplicative change in probability.
+
+```{r adjusted-logistic}
+adjusted_model <- glm(
+  outcome ~ age + saps_3 + creatinine + chronic_kidney_disease,
+  data = analysis_data,
+  family = binomial
+)
+
+adj_coef <- summary(adjusted_model)$coefficients
+adj_ci_log <- confint.default(adjusted_model, level = 0.95)
+
+adjusted_results <- data.frame(
+  Term = rownames(adj_coef),
+  Coefficient_log_odds = adj_coef[, "Estimate"],
+  Standard_error = adj_coef[, "Std. Error"],
+  OR = exp(adj_coef[, "Estimate"]),
+  CI_low = exp(adj_ci_log[, 1]),
+  CI_high = exp(adj_ci_log[, 2]),
+  P_value = adj_coef[, "Pr(>|z|)"]
+)
+
+knitr::kable(adjusted_results, digits = 4, caption = "Adjusted logistic regression for hospital mortality")
+```
+
+# 10) Rescaling continuous predictors
+
+
+For continuous predictors, the unit of measurement determines the interpretation.
+A one-year age odds ratio may be numerically small. A 10-year age odds ratio is often more clinically interpretable.
+
+
+```{r age-per-10-years}
+age_beta <- coef(adjusted_model)["age"]
+age_se <- summary(adjusted_model)$coefficients["age", "Std. Error"]
+
+age_10_year_table <- data.frame(
+  Measure = "Adjusted odds ratio for age per 10-year increase",
+  OR = exp(10 * age_beta),
+  CI_low = exp(10 * (age_beta - 1.96 * age_se)),
+  CI_high = exp(10 * (age_beta + 1.96 * age_se))
+)
+
+knitr::kable(age_10_year_table, digits = 3, caption = "Age effect rescaled to a 10-year increase")
+```
+
+# 11) Predicted probabilities
+
+Logistic regression estimates coefficients on the log-odds scale. Predicted probabilities are often more intuitive for clinical communication.
+Interpretation: predicted probabilities translate the fitted model into estimated absolute risks for clinically recognizable patient profiles. These probabilities should be interpreted cautiously if the model has not been externally validated.
+
+```{r predicted-probabilities}
+new_patients <- data.frame(
+  age = c(45, 65, 80),
+  saps_3 = c(35, 55, 75),
+  creatinine = c(0.9, 1.3, 2.0),
+  chronic_kidney_disease = factor(c("No", "No", "Yes"), levels = c("No", "Yes"))
+)
+
+new_patients$predicted_probability <- predict(
+  adjusted_model,
+  newdata = new_patients,
+  type = "response"
+)
+
+knitr::kable(new_patients, digits = 3, caption = "Predicted probability of hospital mortality for selected patient profiles")
+```
+# 12) Odds ratios, risk ratios, and event frequency
+
+When the outcome is common, odds ratios move farther away from 1 than risk ratios.
+Therefore, odds ratios from logistic regression should not be described as risk ratios or probability ratios.
+
+Interpretation: when outcomes are common, the odds ratio is farther from 1 than the risk ratio. Therefore, odds ratios from logistic regression should not be described as risk ratios or probability ratios.
+```{r or-versus-rr}
+comparison_table <- data.frame(
+  Scenario = c("Uncommon outcome", "Common outcome"),
+  Risk_unexposed = c(0.05, 0.30),
+  Risk_exposed = c(0.10, 0.60)
+)
+
+comparison_table$Risk_ratio <- comparison_table$Risk_exposed / comparison_table$Risk_unexposed
+comparison_table$Odds_ratio <-
+  (comparison_table$Risk_exposed / (1 - comparison_table$Risk_exposed)) /
+  (comparison_table$Risk_unexposed / (1 - comparison_table$Risk_unexposed))
+
+knitr::kable(comparison_table, digits = 3, caption = "Difference between risk ratios and odds ratios")
+```
+
+# 13) Model performance: discrimination
+
+Discrimination evaluates whether patients with events tend to receive higher predicted probabilities than patients without events. The C statistic is equivalent to the area under the receiver operating characteristic curve for binary outcomes.
+
+Interpretation: a C statistic of 0.5 indicates no better ranking than chance, and a C statistic of 1.0 indicates perfect ranking. Discrimination does not assess whether predicted probabilities are well calibrated.
+
+```{r discrimination}
+analysis_data$predicted_probability <- predict(adjusted_model, type = "response")
+
+ranked_predictions <- rank(analysis_data$predicted_probability)
+n_event <- sum(analysis_data$outcome == 1)
+n_nonevent <- sum(analysis_data$outcome == 0)
+sum_ranks_event <- sum(ranked_predictions[analysis_data$outcome == 1])
+
+c_statistic <- (sum_ranks_event - n_event * (n_event + 1) / 2) /
+  (n_event * n_nonevent)
+
+c_statistic_table <- data.frame(
+  Measure = "C statistic / AUROC",
+  Value = c_statistic
+)
+
+knitr::kable(c_statistic_table, digits = 3, caption = "Discrimination of the adjusted logistic regression model")
+```
+
+
+# 14) Model performance: calibration
+
+Calibration evaluates whether predicted probabilities agree with observed event frequencies.
+Grouped calibration can be summarized by comparing the mean predicted probability with the observed event frequency within ordered risk groups.
+
+Interpretation: points close to the 45-degree line suggest agreement between predicted and observed risks. Grouped calibration plots are useful for teaching but do not replace internal validation, external validation, or more detailed calibration assessment in a formal prediction-model study.
+
+```{r calibration-table}
+analysis_data$risk_group <- cut(
+  rank(analysis_data$predicted_probability, ties.method = "first"),
+  breaks = quantile(
+    rank(analysis_data$predicted_probability, ties.method = "first"),
+    probs = seq(0, 1, 0.2),
+    names = FALSE
+  ),
+  include.lowest = TRUE,
+  labels = paste0("Quintile ", 1:5)
+)
+
+calibration_table <- aggregate(
+  cbind(observed = outcome, predicted = predicted_probability) ~ risk_group,
+  data = analysis_data,
+  FUN = mean
+)
+
+calibration_n <- aggregate(
+  outcome ~ risk_group,
+  data = analysis_data,
+  FUN = length
+)
+
+calibration_table$n <- calibration_n$outcome
+
+knitr::kable(calibration_table, digits = 3, caption = "Observed and predicted mortality by quintile of predicted risk")
+```
+
+```{r calibration-plot, fig.width=6, fig.height=6}
+plot(
+  calibration_table$predicted,
+  calibration_table$observed,
+  xlim = c(0, 1),
+  ylim = c(0, 1),
+  xlab = "Mean predicted probability",
+  ylab = "Observed event frequency",
+  main = "Calibration plot by quintile of predicted risk",
+  pch = 19
+)
+abline(0, 1, lwd = 2)
+```
+
+# 15) Final summary table
+
+```{r final-summary}
+format_p <- function(p) {
+  ifelse(p < 0.001, "<0.001", sprintf("%.3f", p))
+}
+
+unadj_age <- unadjusted_results[unadjusted_results$Term == "age", ]
+adj_age <- adjusted_results[adjusted_results$Term == "age", ]
+adj_saps <- adjusted_results[adjusted_results$Term == "saps_3", ]
+
+
+final_summary_table <- data.frame(
+  Analysis = c(
+    "Unadjusted logistic regression: age",
+    "Adjusted logistic regression: age",
+    "Adjusted logistic regression: SAPS 3",
+    "Adjusted model C statistic"
+  ),
+  Estimate = c(
+    sprintf("OR %.3f", unadj_age$OR),
+    sprintf("OR %.3f", adj_age$OR),
+    sprintf("OR %.3f", adj_saps$OR),
+    sprintf("%.3f", c_statistic)
+  ),
+  Confidence_interval = c(
+    paste0("95% CI ", sprintf("%.3f", unadj_age$CI_low), " to ", sprintf("%.3f", unadj_age$CI_high)),
+    paste0("95% CI ", sprintf("%.3f", adj_age$CI_low), " to ", sprintf("%.3f", adj_age$CI_high)),
+    paste0("95% CI ", sprintf("%.3f", adj_saps$CI_low), " to ", sprintf("%.3f", adj_saps$CI_high)),
+    "Not applicable"
+  ),
+  P_value = c(
+    format_p(unadj_age$P_value),
+    format_p(adj_age$P_value),
+    format_p(adj_saps$P_value),
+    "Not applicable"
+  )
+)
+
+knitr::kable(final_summary_table, caption = "Final summary of logistic regression analyses")
+```
+
+
+## End of document
