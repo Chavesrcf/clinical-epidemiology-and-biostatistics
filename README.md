@@ -16,7 +16,7 @@ It covers fundamental concepts such as:
 - All analyses are fully reproducible and accompanied by code in both R and Python.
 
 
-**Important Note on Data**
+**Important note on data**
 All datasets in this repository are fully synthetic and created exclusively for educational purposes.
 They do not correspond to real patients and contain no identifiable or sensitive information.
 
@@ -27,7 +27,7 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Explanatory notes (when applicable)
 
 
-**Topics Covered**
+**Topics covered**
 - Beyond statistical significance: interpretation and reporting of p values and confidence intervals.
 - Calculating adequate sample size across clinical scenarios.
 - Clinical trials phases.
