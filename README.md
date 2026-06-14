@@ -4,13 +4,17 @@ A comprehensive collection of synthetic datasets and reproducible analyses in cl
 
 
 **Overview**
-This repository was created for educational and methodological purposes, providing practical examples of how to perform and interpret key analyses in clinical research.
+This repository was created for educational and methodological purposes. It provides practical, reproducible examples of how to design, conduct, analyze, interpret, and report studies in clinical and public health research.
+The repository covers fundamental concepts in clinical epidemiology and biostatistics, including:
+
+
 It covers fundamental concepts such as:
-- Study design in clinical research
-- Measures of effect and association
-- Statistical inference and hypothesis testing
-- Interpretation beyond statistical significance
+- Study design and methodological planning in clinical and public health research.
+- Data preparation, inspection, and reproducible analysis.
+- Statistical analysis using clear, step-by-step examples.
+- Interpretation and reporting of results.
 - All analyses are fully reproducible and accompanied by code in both R and Python.
+
 
 **Important Note on Data**
 All datasets in this repository are fully synthetic and created exclusively for educational purposes.
@@ -22,11 +26,13 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Python scripts (.py)
 - Explanatory notes (when applicable)
 
+
 **Topics Covered**
 - Beyond statistical significance: interpretation and reporting of p values and confidence intervals.
 - Calculating adequate sample size across clinical scenarios.
 - Clinical trials phases.
 - Correlation and linear regression in clinical and public health research.
+- Logistic regression in clinical and public health research 
 - Observational studies in clinical research.
 - Randomized controlled trials.
 - Relative and absolute measures of effect in clinical research.
@@ -43,12 +49,14 @@ Requirements:
 - R (recommended: latest version).
 - Python (recommended: ≥ 3.10).
 
+
 **Purpose**
 This repository aims to:
 - Support teaching in clinical epidemiology and biostatistics.
 - Provide practical, hands-on examples.
 - Facilitate understanding of core methodological concepts.
 - Serve as a reference for students, clinicians, and researchers.
+
 
 **Authors**
 Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa.
