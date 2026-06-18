@@ -1,0 +1,541 @@
+---
+
+title: "Survival analysis in clinical and public health research"
+authors: "Renato Carneiro de Freitas Chaves, Tiago Mendonça dos Santos, Thiago Domingos Corrêa"
+date: "`r Sys.Date()`"
+output: html_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# 1) Purpose
+
+This R Markdown document provides a step-by-step introduction to survival analysis using a synthetic clinical dataset. The primary objective is to compare time to death between an intervention group and a control group while accounting for unequal follow-up and right censoring.
+
+The analysis addresses five questions:
+
+1. What is the estimated probability of remaining alive over time?
+2. Do the survival functions differ between the two groups?
+3. What is the intervention-to-control hazard ratio?
+4. Does adjustment for a prespecified baseline severity measure materially change the estimated association?
+5. Is the proportional-hazards assumption reasonable?
+
+
+# 2) Packages
+
+```{r packages}
+# Install these packages once if necessary:
+# install.packages(c("readxl", "survival", "knitr"))
+
+library(readxl)   
+library(survival) 
+library(knitr)    
+```
+
+# 3) Data import
+
+This guide uses the Excel file **data.xlsx** with a sheet named **"Data"**.
+
+- If `data.xlsx` is in the same folder as this `.Rmd`, you can keep the path as `"data.xlsx"`.
+- Otherwise, replace with the full path to your file.
+
+```{r import-data}
+data <- read_excel("data.xlsx", sheet = "Data") 
+
+```
+# 4)  Variable Definitions and Data Inspection
+Before conducting statistical analysis, the investigator should inspect the structure of the dataset, confirm the variable names, and review the first rows.
+
+
+The main variables used in this report are:
+- `follow_up_days`: observed time from the defined baseline to death or censoring, measured in days.
+- `event`: event indicator, coded as 1 for death during follow-up and 0 for right censoring.
+- `group`: allocation group, coded as 0 for control and 1 for intervention.
+- `saps_3`: Simplified Acute Physiology Score 3 at ICU admission.
+- `saps_3_10`: SAPS 3 divided by 10, so its Cox-model hazard ratio corresponds to a 10-point increase.
+- `outcome`: vital status at hospital discharge, coded as 0 for alive and 1 for dead. This variable is not used as the survival-event indicator because it refers to a different observation window.
+
+
+
+# Data inspection and validation
+
+The investigator should confirm the dimensions, variable names, coding, and first observations before fitting any model.
+
+```{r inspect-data}
+# Number of rows and columns.
+dim(data)
+
+# Variable names.
+names(data)
+
+# First six records.
+head(data)
+```
+
+# 5) Basic Data Preparation
+The code below checks that the required variables exist, converts them to numeric form, and verifies the survival coding.
+The primary unadjusted analyses require only follow-up time, event status, and group. The adjusted model additionally requires SAPS 3. Keeping separate analytic datasets prevents missing covariates from unnecessarily excluding participants from the Kaplan-Meier, log-rank, or unadjusted Cox analyses.
+
+
+```{r validate-data}
+required_variables <- c("follow_up_days", "event", "group", "saps_3", "outcome")
+
+# Convert only variables used in the analysis.
+data[required_variables] <- lapply(data[required_variables], as.numeric)
+
+survival_data <- data[complete.cases(data[, c("follow_up_days", "event", "group")]),]
+
+adjusted_data <- data[complete.cases(data[, c("follow_up_days", "event", "group", "saps_3")]),]
+
+survival_data$group <- factor(
+  survival_data$group,
+  levels = c(0, 1),
+  labels = c("Control", "Intervention")
+)
+
+adjusted_data$group <- factor(
+  adjusted_data$group,
+  levels = c(0, 1),
+  labels = c("Control", "Intervention")
+)
+
+# Express SAPS 3 per 10-point increase for easier interpretation.
+adjusted_data$saps_3_10 <- adjusted_data$saps_3 / 10
+```
+
+# 6) Descriptive summary
+
+Observed time is the minimum of event time and censoring time. It should not be interpreted as the distribution of potential follow-up. Median potential follow-up is estimated later with the reverse Kaplan-Meier method.
+
+```{r descriptive-summary}
+group_counts <- table(survival_data$group)
+group_events <- tapply(
+  survival_data$event,
+  survival_data$group,
+  sum
+)
+
+group_summary <- data.frame(
+  Group = names(group_counts),
+  Participants = as.integer(group_counts),
+  Deaths = as.integer(group_events),
+  Censored = as.integer(group_counts - group_events),
+  Median_observed_time_days = as.numeric(tapply(
+    survival_data$follow_up_days,
+    survival_data$group,
+    median
+  ))
+)
+
+kable(
+  group_summary,
+  digits = 1,
+  caption = "Descriptive summary by allocation group"
+)
+```
+# 7) Kaplan-Meier curve, Kaplan-Meier curves by group, Numbers at risk and milestone survival, The absolute survival difference at time, and Median survival.
+
+```{r survival-object}
+survival_object <- with(
+  survival_data,
+  Surv(time = follow_up_days, event = event, type = "right")
+)
+
+head(survival_object)
+```
+
+## 7.1) Kaplan-Meier curve
+
+```{r overall-kaplan-meier}
+km_overall <- survfit(
+  Surv(follow_up_days, event) ~ 1,
+  data = survival_data,
+  conf.type = "log-log"
+)
+
+summary(km_overall)
+
+plot(
+  km_overall,
+  xlab = "Follow-up time (days)",
+  ylab = "Estimated survival probability",
+  main = "Overall Kaplan-Meier survival curve",
+  mark.time = TRUE,
+  conf.int = TRUE
+)
+```
+
+## 7.2) Kaplan-Meier curves by group
+
+```{r grouped-kaplan-meier}
+km_by_group <- survfit(
+  Surv(follow_up_days, event) ~ group,
+  data = survival_data,
+  conf.type = "log-log"
+)
+
+plot(
+  km_by_group,
+  xlab = "Follow-up time (days)",
+  ylab = "Estimated survival probability",
+  main = "Kaplan-Meier survival by allocation group",
+  lty = 1:2,
+  mark.time = TRUE,
+  conf.int = FALSE
+)
+
+legend(
+  "topright",
+  legend = levels(survival_data$group),
+  lty = 1:2,
+  bty = "n"
+)
+```
+## 7.3) Numbers at risk and milestone survival
+
+```{r risk-table}
+common_follow_up_limit <- min(tapply(
+  survival_data$follow_up_days,
+  survival_data$group,
+  max
+))
+
+candidate_times <- c(0, 180, 365, 540)
+risk_times <- candidate_times[candidate_times <= common_follow_up_limit]
+
+risk_results <- summary(
+  km_by_group,
+  times = risk_times,
+  extend = FALSE
+)
+
+risk_table <- data.frame(
+  Group = sub("group=", "", risk_results$strata),
+  Time_days = risk_results$time,
+  Number_at_risk = risk_results$n.risk,
+  Survival_probability = risk_results$surv,
+  CI_lower = risk_results$lower,
+  CI_upper = risk_results$upper
+)
+
+kable(
+  risk_table,
+  digits = 3,
+  caption = "Numbers at risk and Kaplan-Meier survival estimates"
+)
+```
+## 7.4) The absolute survival difference at time 
+
+```{r milestone-survival}
+milestone_day <- 365
+
+if (milestone_day > common_follow_up_limit) {
+  stop("The selected milestone exceeds the observed follow-up range of at least one group.")
+}
+
+milestone_results <- summary(
+  km_by_group,
+  times = milestone_day,
+  extend = FALSE
+)
+
+milestone_table <- data.frame(
+  Group = sub("group=", "", milestone_results$strata),
+  Time_days = milestone_results$time,
+  Survival_probability = milestone_results$surv,
+  Standard_error = milestone_results$std.err,
+  CI_lower = milestone_results$lower,
+  CI_upper = milestone_results$upper
+)
+
+control_row <- match("Control", milestone_table$Group)
+intervention_row <- match("Intervention", milestone_table$Group)
+
+control_survival_365 <- milestone_table$Survival_probability[control_row]
+intervention_survival_365 <- milestone_table$Survival_probability[intervention_row]
+
+survival_difference_365 <-
+  intervention_survival_365 - control_survival_365
+
+survival_difference_se <- sqrt(
+  milestone_table$Standard_error[intervention_row]^2 +
+    milestone_table$Standard_error[control_row]^2
+)
+
+survival_difference_ci <- survival_difference_365 +
+  c(-1, 1) * qnorm(0.975) * survival_difference_se
+
+# A difference between two probabilities must lie between -1 and 1.
+survival_difference_ci <- pmax(-1, pmin(1, survival_difference_ci))
+
+kable(
+  milestone_table,
+  digits = 3,
+  caption = "Estimated 365-day survival by allocation group"
+)
+
+survival_difference_365
+survival_difference_ci
+```
+
+## 7.5) Median survival
+
+Median survival is the earliest time at which the Kaplan-Meier estimate is 0.50 or lower.
+It is not estimable if the curve does not reach 0.50 during observed follow-up.
+
+```{r median-survival}
+km_table <- summary(km_by_group)$table
+
+median_survival_table <- data.frame(
+  Group = sub("group=", "", rownames(km_table)),
+  Median_days = km_table[, "median"],
+  CI_lower = km_table[, "0.95LCL"],
+  CI_upper = km_table[, "0.95UCL"]
+)
+
+kable(
+  median_survival_table,
+  digits = 1,
+  caption = "Median survival by allocation group"
+)
+```
+
+# 8) Log-rank test
+The log-rank test compares observed and expected deaths over the full follow-up period.
+The test provides a global unadjusted comparison but does not estimate an effect size.
+
+```{r log-rank-test}
+logrank_test <- survdiff(
+  Surv(follow_up_days, event) ~ group,
+  data = survival_data,
+  rho = 0
+)
+
+logrank_df <- length(logrank_test$n) - 1
+logrank_p_value <- pchisq(
+  logrank_test$chisq,
+  df = logrank_df,
+  lower.tail = FALSE
+)
+
+logrank_test
+logrank_p_value
+```
+
+# 9)  Unadjusted Cox proportional-hazards model
+Under proportional hazards, an HR below 1 indicates a lower death hazard in the intervention group than in the control group among participants who remain alive at each time. It is not a fixed-time risk ratio or a ratio of survival probabilities.
+
+```{r unadjusted-cox}
+cox_unadjusted <- coxph(
+  Surv(follow_up_days, event) ~ group,
+  data = survival_data,
+  ties = "efron",
+  x = TRUE
+)
+
+unadjusted_summary <- summary(cox_unadjusted)
+summary(cox_unadjusted)
+
+unadjusted_hr <- unadjusted_summary$conf.int[
+  "groupIntervention",
+  "exp(coef)"
+]
+
+unadjusted_ci <- unadjusted_summary$conf.int[
+  "groupIntervention",
+  c("lower .95", "upper .95")
+]
+
+unadjusted_p_value <- unadjusted_summary$coefficients[
+  "groupIntervention",
+  "Pr(>|z|)"
+]
+
+# Unadjusted-cox-table
+unadjusted_cox_table <- data.frame(
+  Comparison = "Intervention vs Control",
+  Hazard_ratio = unadjusted_hr,
+  CI_lower = unadjusted_ci[1],
+  CI_upper = unadjusted_ci[2],
+  P_value = unadjusted_p_value
+)
+
+kable(
+  unadjusted_cox_table,
+  digits = 3,
+  caption = "Unadjusted Cox proportional-hazards model"
+)
+```
+
+## 9.1) Parsimonious adjusted Cox model
+To preserve stability and clarity in this small educational dataset, the adjusted model includes allocation group and one prespecified baseline severity measure, SAPS 3. The SAPS 3 coefficient is scaled to a 10-point increase. The adjusted group coefficient is conditional on SAPS 3 and should not automatically be interpreted as causal.
+
+```{r adjusted-cox}
+cox_adjusted <- coxph(
+  Surv(follow_up_days, event) ~ group + saps_3_10,
+  data = adjusted_data,
+  ties = "efron",
+  x = TRUE
+)
+
+adjusted_summary <- summary(cox_adjusted)
+summary(cox_adjusted)
+
+# Adjusted-cox-table
+adjusted_cox_table <- data.frame(
+  Term = c(
+    "Intervention vs Control",
+    "SAPS 3, per 10-point increase"
+  ),
+  Hazard_ratio = adjusted_summary$conf.int[, "exp(coef)"],
+  CI_lower = adjusted_summary$conf.int[, "lower .95"],
+  CI_upper = adjusted_summary$conf.int[, "upper .95"],
+  P_value = adjusted_summary$coefficients[, "Pr(>|z|)"]
+)
+
+kable(
+  adjusted_cox_table,
+  digits = 3,
+  caption = "Parsimonious adjusted Cox proportional-hazards model"
+)
+```
+
+## 9.2) Proportional-hazards assessment
+
+Schoenfeld residual.
+A systematic relationship between scaled Schoenfeld residuals and time suggests nonproportional hazards.
+A nonsignificant test does not prove proportional hazards, particularly in a small sample. The covariate-specific and global tests should be interpreted with the residual plot and the Kaplan-Meier curves.
+
+```{r proportional-hazards}
+ph_test <- cox.zph(
+  cox_adjusted,
+  transform = "km"
+)
+
+ph_test
+
+# The first model term is the allocation-group coefficient.
+plot(
+  ph_test,
+  var = 1,
+  xlab = "Follow-up time",
+  ylab = "Scaled Schoenfeld residual",
+  main = "Proportional-hazards assessment for allocation group"
+)
+abline(h = 0, lty = 2)
+
+ph_group_p <- ph_test$table["group", "p"]
+ph_global_p <- ph_test$table["GLOBAL", "p"]
+```
+
+# 10) Follow-up estimated by the reverse Kaplan-Meier method
+
+The reverse Kaplan-Meier method reverses the death and censoring indicators.
+Censoring times are treated as events and death times as censored observations. The resulting median is an estimate of median potential follow-up rather than the median of observed event-or-censoring times.
+
+```{r reverse-kaplan-meier}
+reverse_km <- survfit(
+  Surv(follow_up_days, 1 - event) ~ 1,
+  data = survival_data,
+  conf.type = "log-log"
+)
+
+reverse_km_table <- summary(reverse_km)$table
+
+median_follow_up_days <- unname(reverse_km_table["median"])
+median_follow_up_ci <- unname(reverse_km_table[
+  c("0.95LCL", "0.95UCL")
+])
+
+median_follow_up_days
+median_follow_up_ci
+```
+
+# 11) Final summary table
+
+```{r final-summary}
+adjusted_group_hr <- adjusted_summary$conf.int[
+  "groupIntervention",
+  "exp(coef)"
+]
+
+adjusted_group_ci <- adjusted_summary$conf.int[
+  "groupIntervention",
+  c("lower .95", "upper .95")
+]
+
+adjusted_group_p <- adjusted_summary$coefficients[
+  "groupIntervention",
+  "Pr(>|z|)"
+]
+
+final_summary_table <- data.frame(
+  Measure = c(
+    "Log-rank test",
+    "Unadjusted hazard ratio: intervention vs control",
+    "SAPS 3-adjusted hazard ratio: intervention vs control",
+    "365-day survival: control",
+    "365-day survival: intervention",
+    "Absolute 365-day survival difference",
+    "Median potential follow-up"
+  ),
+  Estimate = c(
+    sprintf("Chi-square = %.3f", logrank_test$chisq),
+    sprintf("%.3f", unadjusted_hr),
+    sprintf("%.3f", adjusted_group_hr),
+    sprintf("%.1f%%", 100 * control_survival_365),
+    sprintf("%.1f%%", 100 * intervention_survival_365),
+    sprintf("%.1f %", 100 * survival_difference_365),
+    sprintf("%.0f days", median_follow_up_days)
+  ),
+  `95% confidence interval` = c(
+    "Not applicable",
+    sprintf("%.3f to %.3f", unadjusted_ci[1], unadjusted_ci[2]),
+    sprintf("%.3f to %.3f", adjusted_group_ci[1], adjusted_group_ci[2]),
+    sprintf(
+      "%.1f%% to %.1f%%",
+      100 * milestone_table$CI_lower[control_row],
+      100 * milestone_table$CI_upper[control_row]
+    ),
+    sprintf(
+      "%.1f%% to %.1f%%",
+      100 * milestone_table$CI_lower[intervention_row],
+      100 * milestone_table$CI_upper[intervention_row]
+    ),
+    sprintf(
+      "%.1f to %.1f percentage points",
+      100 * survival_difference_ci[1],
+      100 * survival_difference_ci[2]
+    ),
+    sprintf(
+      "%.0f to %.0f days",
+      median_follow_up_ci[1],
+      median_follow_up_ci[2]
+    )
+  ),
+  P_value = c(
+    format.pval(logrank_p_value, digits = 3, eps = 0.001),
+    format.pval(unadjusted_p_value, digits = 3, eps = 0.001),
+    format.pval(adjusted_group_p, digits = 3, eps = 0.001),
+    "Not applicable",
+    "Not applicable",
+    "Not calculated",
+    "Not applicable"
+  ),
+  check.names = FALSE
+)
+
+kable(
+  final_summary_table,
+  caption = "Final summary of survival analyses"
+)
+```
+
+## End of document
