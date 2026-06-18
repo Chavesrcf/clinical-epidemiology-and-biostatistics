@@ -40,6 +40,7 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Reporting descriptive statistics in clinical research.
 - Reporting disease frequency in clinical research.
 - Risk, relative risk, odds, and odds ratio.
+- Survival analysis in clinical and public health research
 - Systematic reviews and meta-analyses.
 
 
