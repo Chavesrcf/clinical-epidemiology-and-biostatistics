@@ -42,6 +42,7 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Risk, relative risk, odds, and odds ratio.
 - Survival analysis in clinical and public health research
 - Systematic reviews and meta-analyses.
+- Understanding the differences between bayesian and frequentist statistics
 
 
 **Reproducibility**
