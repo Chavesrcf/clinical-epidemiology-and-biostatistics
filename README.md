@@ -30,6 +30,7 @@ They do not correspond to real patients and contain no identifiable or sensitive
 **Topics covered**
 - Beyond statistical significance: interpretation and reporting of p values and confidence intervals.
 - Calculating adequate sample size across clinical scenarios.
+- Causal inference in clinical, public health, and health sciences research
 - Clinical trials phases.
 - Correlation and linear regression in clinical and public health research.
 - Logistic regression in clinical and public health research 
