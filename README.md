@@ -33,6 +33,7 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Causal inference in clinical, public health, and health sciences research
 - Clinical trials phases.
 - Correlation and linear regression in clinical and public health research.
+- Informed consent in clinical research: from disclosure to understanding and voluntary authorization
 - Logistic regression in clinical and public health research 
 - Observational studies in clinical research.
 - Randomized controlled trials.
