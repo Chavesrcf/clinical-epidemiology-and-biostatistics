@@ -36,6 +36,7 @@ They do not correspond to real patients and contain no identifiable or sensitive
 - Informed consent in clinical research: from disclosure to understanding and voluntary authorization
 - Logistic regression in clinical and public health research 
 - Observational studies in clinical research.
+- Qualitative methods in health research
 - Randomized controlled trials.
 - Relative and absolute measures of effect in clinical research.
 - Reporting diagnostic accuracy in clinical research.
