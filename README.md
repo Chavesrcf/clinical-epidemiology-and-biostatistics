@@ -28,24 +28,25 @@ They do not correspond to real patients and contain no identifiable or sensitive
 
 
 **Topics covered**
+- Alternative randomized trial designs in health research: crossover, factorial, stepped-wedge, adaptive, and platform trials.
 - Beyond statistical significance: interpretation and reporting of p values and confidence intervals.
 - Calculating adequate sample size across clinical scenarios.
-- Causal inference in clinical, public health, and health sciences research
+- Causal inference in clinical, public health, and health sciences research.
 - Clinical trials phases.
 - Correlation and linear regression in clinical and public health research.
-- Informed consent in clinical research: from disclosure to understanding and voluntary authorization
-- Logistic regression in clinical and public health research 
+- Informed consent in clinical research: from disclosure to understanding and voluntary authorization.
+- Logistic regression in clinical and public health research.
 - Observational studies in clinical research.
-- Qualitative methods in health research
+- Qualitative methods in health research.
 - Randomized controlled trials.
 - Relative and absolute measures of effect in clinical research.
 - Reporting diagnostic accuracy in clinical research.
 - Reporting descriptive statistics in clinical research.
 - Reporting disease frequency in clinical research.
 - Risk, relative risk, odds, and odds ratio.
-- Survival analysis in clinical and public health research
+- Survival analysis in clinical and public health research.
 - Systematic reviews and meta-analyses.
-- Understanding the differences between bayesian and frequentist statistics
+- Understanding the differences between bayesian and frequentist statistics.
 
 
 **Reproducibility**
