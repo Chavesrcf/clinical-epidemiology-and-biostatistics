@@ -163,7 +163,7 @@ RRR <- 1 - RR
 RRR
 ```
 
-## 7.5 Absolute Risk Reduction (ARR)
+## 7.5 Absolute Risk Reduction ()
 
 \[ ARR = Risk_{Control} - Risk_{Intervention} \]
 
@@ -215,9 +215,9 @@ arr_test <- prop.test(
   correct = FALSE
 )
 
-ARR <- arr_test$estimate[[2]] - arr_test$estimate[[1]]  # intervention - control
-ARR_CI_low  <- arr_test$conf.int[2]  
-ARR_CI_high <- arr_test$conf.int[1]
+ARR <- arr_test$estimate[[2]] - arr_test$estimate[[1]]
+ARR_CI_low  <- -arr_test$conf.int[2]  
+ARR_CI_high <- -arr_test$conf.int[1]
 ```
 
 ## 8.2 Relative risk (RR) with 95% CI
